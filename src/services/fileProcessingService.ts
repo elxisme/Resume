@@ -68,25 +68,69 @@ export class FileProcessingService {
       // Dynamic import to avoid bundling issues
       const pdfjsLib = await import('pdfjs-dist');
       
-      // Set worker source
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      // Set worker source with fallback options
+      const workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+      }
 
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      // Configure PDF.js with better error handling
+      const loadingTask = pdfjsLib.getDocument({
+        data: arrayBuffer,
+        verbosity: 0, // Reduce console noise
+        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+        cMapPacked: true,
+        standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+        useSystemFonts: true,
+        disableFontFace: false,
+        disableRange: false,
+        disableStream: false,
+        disableAutoFetch: false,
+        pdfBug: false
+      });
+
+      const pdf = await loadingTask.promise;
       
       let fullText = '';
       const pageCount = pdf.numPages;
+      let successfulPages = 0;
 
-      // Extract text from all pages
+      // Extract text from all pages with individual error handling
       for (let i = 1; i <= pageCount; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        
-        const pageText = textContent.items
-          .map((item: any) => item.str)
-          .join(' ');
-        
-        fullText += pageText + '\n';
+        try {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent({
+            normalizeWhitespace: true,
+            disableCombineTextItems: false
+          });
+          
+          const pageText = textContent.items
+            .filter((item: any) => item.str && item.str.trim())
+            .map((item: any) => item.str)
+            .join(' ');
+          
+          if (pageText.trim()) {
+            fullText += pageText + '\n';
+            successfulPages++;
+          }
+        } catch (pageError) {
+          console.warn(`Error extracting text from page ${i}:`, pageError);
+          // Continue with other pages
+        }
+      }
+
+      // Clean up PDF resources
+      await pdf.destroy();
+
+      if (successfulPages === 0) {
+        throw new Error('No readable text found in PDF. The document may contain only images or scanned content.');
+      }
+
+      if (fullText.trim().length < 50) {
+        throw new Error('Very little text extracted from PDF. The document may be primarily image-based or have formatting issues.');
       }
 
       return {
@@ -96,13 +140,21 @@ export class FileProcessingService {
     } catch (error: any) {
       console.error('PDF extraction error:', error);
       
-      // Fallback to basic text extraction
+      // Provide more specific error messages
       if (error.message?.includes('Invalid PDF')) {
-        throw new Error('Invalid PDF file. Please ensure the file is not corrupted.');
+        throw new Error('Invalid PDF file. Please ensure the file is not corrupted and is a valid PDF document.');
       } else if (error.message?.includes('password')) {
         throw new Error('Password-protected PDFs are not supported. Please upload an unprotected version.');
+      } else if (error.message?.includes('No readable text found')) {
+        throw new Error('This PDF appears to contain only images or scanned content. Please upload a PDF with selectable text or convert it using OCR software first.');
+      } else if (error.message?.includes('Very little text extracted')) {
+        throw new Error('Unable to extract sufficient text from this PDF. Please ensure it contains readable text content, not just images.');
+      } else if (error.message?.includes('Loading')) {
+        throw new Error('Failed to load PDF file. The file may be corrupted or too large.');
+      } else if (error.name === 'UnexpectedResponseException') {
+        throw new Error('PDF processing failed due to network issues. Please try again.');
       } else {
-        throw new Error('Failed to extract text from PDF. The file may be corrupted or contain only images.');
+        throw new Error('Failed to extract text from PDF. The file may be corrupted, contain only images, or have an unsupported format. Please try uploading a different PDF or convert it to a text-based format.');
       }
     }
   }
@@ -119,14 +171,20 @@ export class FileProcessingService {
         console.warn('DOCX extraction warnings:', result.messages);
       }
 
+      if (!result.value || result.value.trim().length < 50) {
+        throw new Error('Very little text extracted from DOCX. The document may be empty or contain primarily non-text content.');
+      }
+
       return result.value;
     } catch (error: any) {
       console.error('DOCX extraction error:', error);
       
       if (error.message?.includes('not a valid zip file')) {
-        throw new Error('Invalid DOCX file. Please ensure the file is not corrupted.');
+        throw new Error('Invalid DOCX file. Please ensure the file is not corrupted and is a valid Word document.');
+      } else if (error.message?.includes('Very little text extracted')) {
+        throw new Error('Unable to extract sufficient text from this DOCX file. Please ensure it contains readable content.');
       } else {
-        throw new Error('Failed to extract text from DOCX file. The file may be corrupted.');
+        throw new Error('Failed to extract text from DOCX file. The file may be corrupted or in an unsupported format.');
       }
     }
   }
@@ -142,6 +200,9 @@ export class FileProcessingService {
       .replace(/\r/g, '\n')
       // Remove multiple consecutive line breaks
       .replace(/\n{3,}/g, '\n\n')
+      // Remove common PDF artifacts
+      .replace(/\f/g, '\n') // Form feed characters
+      .replace(/\u00A0/g, ' ') // Non-breaking spaces
       // Trim whitespace
       .trim();
   }
@@ -156,10 +217,10 @@ export class FileProcessingService {
 
     // Check for essential resume sections
     const sections = {
-      contact: /(?:email|phone|address|linkedin|github)/i,
-      experience: /(?:experience|work|employment|job|position)/i,
-      education: /(?:education|degree|university|college|school)/i,
-      skills: /(?:skills|technologies|proficient|expertise)/i
+      contact: /(?:email|phone|address|linkedin|github|contact)/i,
+      experience: /(?:experience|work|employment|job|position|career)/i,
+      education: /(?:education|degree|university|college|school|academic)/i,
+      skills: /(?:skills|technologies|proficient|expertise|competencies)/i
     };
 
     Object.entries(sections).forEach(([section, regex]) => {
@@ -184,6 +245,11 @@ export class FileProcessingService {
 
     if (!/(?:@|email)/i.test(text)) {
       suggestions.push('Make sure to include your email address for contact purposes.');
+    }
+
+    // Check for potential OCR or extraction issues
+    if (text.includes('�') || /[^\x00-\x7F]{10,}/.test(text)) {
+      suggestions.push('Some characters may not have been extracted correctly. Please review the content.');
     }
 
     return { isValid, suggestions };
