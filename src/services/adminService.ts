@@ -49,6 +49,34 @@ export interface UserActivityData {
   analyses: number;
 }
 
+export interface UserSearchFilters {
+  searchTerm?: string;
+  subscriptionStatus?: 'all' | 'active' | 'inactive' | 'cancelled';
+  userRole?: 'all' | 'admin' | 'user';
+  dateRange?: {
+    start: string;
+    end: string;
+  };
+  sortBy?: 'created_at' | 'last_login' | 'name' | 'subscription_status';
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface UserExportData {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  is_admin: boolean;
+  subscription_status: string;
+  subscription_package: string;
+  subscription_start_date: string;
+  subscription_end_date: string;
+  total_analyses: number;
+  last_login: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export class AdminService {
   static async getDashboardStats(): Promise<DashboardStats> {
     const currentMonth = new Date();
@@ -182,6 +210,332 @@ export class AdminService {
     return data;
   }
 
+  // Enhanced User Management Methods
+  static async getUsers(
+    page = 1, 
+    limit = 10, 
+    filters: UserSearchFilters = {}
+  ): Promise<{
+    users: any[];
+    total: number;
+    pages: number;
+    filteredCount: number;
+  }> {
+    const offset = (page - 1) * limit;
+    
+    try {
+      // Build the base query
+      let query = supabase
+        .from('profiles')
+        .select(`
+          *,
+          subscriptions(
+            *,
+            package:packages(name, price)
+          ),
+          resume_analyses(count)
+        `, { count: 'exact' });
+
+      // Apply search filter
+      if (filters.searchTerm && filters.searchTerm.trim()) {
+        const searchTerm = filters.searchTerm.trim();
+        query = query.or(`first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+      }
+
+      // Apply role filter
+      if (filters.userRole && filters.userRole !== 'all') {
+        if (filters.userRole === 'admin') {
+          query = query.eq('is_admin', true);
+        } else {
+          query = query.eq('is_admin', false);
+        }
+      }
+
+      // Apply date range filter
+      if (filters.dateRange) {
+        query = query
+          .gte('created_at', filters.dateRange.start)
+          .lte('created_at', filters.dateRange.end);
+      }
+
+      // Apply sorting
+      const sortBy = filters.sortBy || 'created_at';
+      const sortOrder = filters.sortOrder || 'desc';
+      
+      if (sortBy === 'name') {
+        query = query.order('first_name', { ascending: sortOrder === 'asc' });
+      } else {
+        query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+      }
+
+      // Get total count for filtered results
+      const { count: filteredCount } = await query;
+
+      // Apply pagination
+      const { data, error, count } = await query
+        .range(offset, offset + limit - 1);
+
+      if (error) throw error;
+
+      // Process users to include subscription status and analysis count
+      const processedUsers = data?.map(user => {
+        const activeSubscription = user.subscriptions?.find((sub: any) => sub.status === 'active');
+        const analysisCount = user.resume_analyses?.length || 0;
+        
+        return {
+          ...user,
+          subscription_status: activeSubscription ? 'active' : 'inactive',
+          subscription_package: activeSubscription?.package?.name || 'Free',
+          subscription_price: activeSubscription?.package?.price || 0,
+          total_analyses: analysisCount,
+          last_login: user.updated_at // Using updated_at as proxy for last login
+        };
+      }) || [];
+
+      // Filter by subscription status if specified
+      let finalUsers = processedUsers;
+      if (filters.subscriptionStatus && filters.subscriptionStatus !== 'all') {
+        finalUsers = processedUsers.filter(user => {
+          switch (filters.subscriptionStatus) {
+            case 'active':
+              return user.subscription_status === 'active';
+            case 'inactive':
+              return user.subscription_status === 'inactive';
+            case 'cancelled':
+              return user.subscriptions?.some((sub: any) => sub.status === 'cancelled');
+            default:
+              return true;
+          }
+        });
+      }
+
+      return {
+        users: finalUsers,
+        total: count || 0,
+        pages: Math.ceil((count || 0) / limit),
+        filteredCount: filteredCount || 0
+      };
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      throw error;
+    }
+  }
+
+  static async searchUsers(searchTerm: string, limit = 20): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select(`
+          *,
+          subscriptions(
+            *,
+            package:packages(name)
+          )
+        `)
+        .or(`first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`)
+        .limit(limit);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error searching users:', error);
+      throw error;
+    }
+  }
+
+  static async exportUsers(filters: UserSearchFilters = {}): Promise<UserExportData[]> {
+    try {
+      // Get all users matching the filters (no pagination for export)
+      let query = supabase
+        .from('profiles')
+        .select(`
+          *,
+          subscriptions(
+            *,
+            package:packages(name, price)
+          ),
+          resume_analyses(count)
+        `);
+
+      // Apply the same filters as getUsers
+      if (filters.searchTerm && filters.searchTerm.trim()) {
+        const searchTerm = filters.searchTerm.trim();
+        query = query.or(`first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+      }
+
+      if (filters.userRole && filters.userRole !== 'all') {
+        if (filters.userRole === 'admin') {
+          query = query.eq('is_admin', true);
+        } else {
+          query = query.eq('is_admin', false);
+        }
+      }
+
+      if (filters.dateRange) {
+        query = query
+          .gte('created_at', filters.dateRange.start)
+          .lte('created_at', filters.dateRange.end);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Transform data for export
+      const exportData: UserExportData[] = (data || []).map(user => {
+        const activeSubscription = user.subscriptions?.find((sub: any) => sub.status === 'active');
+        const analysisCount = user.resume_analyses?.length || 0;
+
+        return {
+          id: user.id,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          email: user.email || '', // Get email from auth if needed
+          is_admin: user.is_admin,
+          subscription_status: activeSubscription ? 'active' : 'inactive',
+          subscription_package: activeSubscription?.package?.name || 'Free',
+          subscription_start_date: activeSubscription?.start_date || '',
+          subscription_end_date: activeSubscription?.end_date || '',
+          total_analyses: analysisCount,
+          last_login: user.updated_at,
+          created_at: user.created_at,
+          updated_at: user.updated_at
+        };
+      });
+
+      // Apply subscription status filter for export
+      if (filters.subscriptionStatus && filters.subscriptionStatus !== 'all') {
+        return exportData.filter(user => {
+          switch (filters.subscriptionStatus) {
+            case 'active':
+              return user.subscription_status === 'active';
+            case 'inactive':
+              return user.subscription_status === 'inactive';
+            case 'cancelled':
+              // Would need to check subscription history for cancelled status
+              return false;
+            default:
+              return true;
+          }
+        });
+      }
+
+      return exportData;
+    } catch (error) {
+      console.error('Error exporting users:', error);
+      throw error;
+    }
+  }
+
+  static generateCSV(data: UserExportData[]): string {
+    if (data.length === 0) {
+      return 'No data to export';
+    }
+
+    // Define CSV headers
+    const headers = [
+      'User ID',
+      'First Name',
+      'Last Name',
+      'Email',
+      'Is Admin',
+      'Subscription Status',
+      'Subscription Package',
+      'Subscription Start Date',
+      'Subscription End Date',
+      'Total Analyses',
+      'Last Login',
+      'Created At',
+      'Updated At'
+    ];
+
+    // Create CSV content
+    const csvContent = [
+      headers.join(','),
+      ...data.map(user => [
+        user.id,
+        `"${user.first_name}"`,
+        `"${user.last_name}"`,
+        `"${user.email}"`,
+        user.is_admin ? 'Yes' : 'No',
+        user.subscription_status,
+        `"${user.subscription_package}"`,
+        user.subscription_start_date ? format(new Date(user.subscription_start_date), 'yyyy-MM-dd') : '',
+        user.subscription_end_date ? format(new Date(user.subscription_end_date), 'yyyy-MM-dd') : '',
+        user.total_analyses,
+        user.last_login ? format(new Date(user.last_login), 'yyyy-MM-dd HH:mm:ss') : '',
+        format(new Date(user.created_at), 'yyyy-MM-dd HH:mm:ss'),
+        format(new Date(user.updated_at), 'yyyy-MM-dd HH:mm:ss')
+      ].join(','))
+    ].join('\n');
+
+    return csvContent;
+  }
+
+  static async getUserDetails(userId: string): Promise<any> {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select(`
+          *,
+          subscriptions(
+            *,
+            package:packages(*)
+          ),
+          resume_analyses(
+            id,
+            ats_score,
+            created_at,
+            resume_templates(name)
+          ),
+          payment_transactions(
+            id,
+            amount,
+            status,
+            created_at
+          )
+        `)
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching user details:', error);
+      throw error;
+    }
+  }
+
+  static async updateUserStatus(userId: string, isAdmin: boolean): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_admin: isAdmin })
+        .eq('id', userId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      throw error;
+    }
+  }
+
+  static async deleteUser(userId: string): Promise<void> {
+    try {
+      // Note: This will cascade delete due to foreign key constraints
+      const { error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', userId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  }
+
+  // Private helper methods
   private static async getUserCount(startDate: Date, endDate: Date): Promise<{ total: number; new: number }> {
     // Total users
     const { count: totalUsers } = await supabase
@@ -303,31 +657,7 @@ export class AdminService {
     return Math.round(((current - previous) / previous) * 100);
   }
 
-  // Existing methods...
-  static async getUsers(page = 1, limit = 10) {
-    const offset = (page - 1) * limit;
-
-    const { data, error, count } = await supabase
-      .from('profiles')
-      .select(`
-        *,
-        subscriptions(
-          *,
-          package:packages(name)
-        )
-      `, { count: 'exact' })
-      .range(offset, offset + limit - 1)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    return {
-      users: data,
-      total: count || 0,
-      pages: Math.ceil((count || 0) / limit)
-    };
-  }
-
+  // Existing methods for packages and other functionality...
   static async getPackages(): Promise<Package[]> {
     const { data, error } = await supabase
       .from('packages')
