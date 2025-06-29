@@ -113,21 +113,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = async (userId: string) => {
     try {
-      // Get profile
+      // Get profile - use maybeSingle() to handle cases where profile doesn't exist
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
       if (profileError) {
         console.error('Error fetching profile:', profileError);
+        setProfile(null);
         setIsLoading(false);
         return;
       }
 
-      // Get active subscription with package details
-      const { data: subscription } = await supabase
+      // If no profile found, set profile to null
+      if (!profileData) {
+        console.warn('No profile found for user:', userId);
+        setProfile(null);
+        setIsLoading(false);
+        return;
+      }
+
+      // Get active subscription with package details - use maybeSingle() since subscription is optional
+      const { data: subscription, error: subscriptionError } = await supabase
         .from('subscriptions')
         .select(`
           *,
@@ -135,7 +144,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `)
         .eq('user_id', userId)
         .eq('status', 'active')
-        .single();
+        .maybeSingle();
+
+      if (subscriptionError) {
+        console.warn('Error fetching subscription:', subscriptionError);
+        // Continue without subscription data
+      }
 
       // Combine profile with subscription data
       const profileWithSubscription = {
@@ -146,6 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfile(profileWithSubscription);
     } catch (error) {
       console.error('Error fetching profile:', error);
+      setProfile(null);
     } finally {
       setIsLoading(false); // Always set loading to false after profile fetch attempt
     }
