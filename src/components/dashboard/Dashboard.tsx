@@ -8,12 +8,13 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { ResumeTemplate, ResumeAnalysis } from '../../types';
 import { ResumeService } from '../../services/resumeService';
+import { FileProcessingResult } from '../../services/fileProcessingService';
 import { Sparkles, ArrowRight, AlertCircle, Crown } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
   const { profile } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [resumeText, setResumeText] = useState('');
+  const [processingResult, setProcessingResult] = useState<FileProcessingResult | null>(null);
   const [jobDescription, setJobDescription] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [templates, setTemplates] = useState<ResumeTemplate[]>([]);
@@ -43,40 +44,21 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const handleFileSelect = async (file: File) => {
+  const handleFileSelect = async (file: File, result: FileProcessingResult) => {
     setSelectedFile(file);
+    setProcessingResult(result);
     setError('');
-    
-    try {
-      // Extract text from file (simplified for demo)
-      const text = await extractTextFromFile(file);
-      setResumeText(text);
-    } catch (error) {
-      setError('Failed to extract text from file. Please try again.');
-    }
-  };
-
-  const extractTextFromFile = async (file: File): Promise<string> => {
-    // In production, use proper PDF/DOCX parsing libraries
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        // This is a simplified version - in production you'd use pdf-parse or mammoth
-        resolve(`Extracted text from ${file.name}:\n\n[Resume content would be extracted here using proper libraries like pdf-parse for PDF files or mammoth for DOCX files]`);
-      };
-      reader.readAsText(file);
-    });
   };
 
   const handleAnalyze = async () => {
-    if (!resumeText || !jobDescription.trim() || !selectedTemplate) return;
+    if (!processingResult || !jobDescription.trim() || !selectedTemplate) return;
 
     setIsAnalyzing(true);
     setError('');
     
     try {
       const analysisResponse = await ResumeService.analyzeResume({
-        resumeText,
+        resumeText: processingResult.text,
         jobDescription,
         templateId: selectedTemplate
       });
@@ -85,13 +67,16 @@ export const Dashboard: React.FC = () => {
       const analysisData: ResumeAnalysis = {
         id: Date.now().toString(),
         user_id: profile!.id,
-        original_resume_text: resumeText,
+        original_resume_text: processingResult.text,
         job_description: jobDescription,
         tailored_resume_text: analysisResponse.tailoredResume,
         template_id: selectedTemplate,
         suggestions: analysisResponse.suggestions,
         ats_score: analysisResponse.atsScore,
-        analysis_data: analysisResponse.analysisData,
+        analysis_data: {
+          ...analysisResponse.analysisData,
+          fileMetadata: processingResult.metadata
+        },
         created_at: new Date().toISOString()
       };
 
@@ -106,20 +91,20 @@ export const Dashboard: React.FC = () => {
   const handleDownload = (format: 'pdf' | 'docx') => {
     if (!analysis) return;
     
-    // In production, generate actual files using jsPDF and other libraries
-    const content = analysis.tailored_resume_text || '';
-    const blob = new Blob([content], { 
-      type: format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+    // In production, generate actual files using the file utils
+    import('../../utils/fileUtils').then(({ generatePDF, generateDOCX }) => {
+      const content = analysis.tailored_resume_text || '';
+      const filename = `tailored-resume-${Date.now()}`;
+      
+      if (format === 'pdf') {
+        generatePDF(content, `${filename}.pdf`);
+      } else {
+        generateDOCX(content, `${filename}.docx`);
+      }
+    }).catch(error => {
+      console.error('Download error:', error);
+      setError('Failed to generate file. Please try again.');
     });
-    
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `tailored-resume.${format}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   const handlePreview = () => {
@@ -128,7 +113,7 @@ export const Dashboard: React.FC = () => {
     alert('Preview feature: Would show formatted resume with selected template');
   };
 
-  const canAnalyze = resumeText && jobDescription.trim() && selectedTemplate;
+  const canAnalyze = processingResult && jobDescription.trim() && selectedTemplate;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -166,9 +151,10 @@ export const Dashboard: React.FC = () => {
               <FileUpload
                 onFileSelect={handleFileSelect}
                 selectedFile={selectedFile}
+                processingResult={processingResult}
                 onClearFile={() => {
                   setSelectedFile(null);
-                  setResumeText('');
+                  setProcessingResult(null);
                 }}
               />
             </div>
@@ -203,6 +189,13 @@ export const Dashboard: React.FC = () => {
                   <p className="text-gray-600 text-sm mb-4">
                     Our AI will analyze your resume and tailor it specifically for this job opening.
                   </p>
+                  {processingResult && (
+                    <div className="mb-4 p-3 bg-green-50 rounded-lg">
+                      <p className="text-sm text-green-800">
+                        ✅ Resume processed: {processingResult.metadata.wordCount} words extracted
+                      </p>
+                    </div>
+                  )}
                   <Button
                     onClick={handleAnalyze}
                     disabled={!canAnalyze}
@@ -246,7 +239,7 @@ export const Dashboard: React.FC = () => {
               onClick={() => {
                 setAnalysis(null);
                 setSelectedFile(null);
-                setResumeText('');
+                setProcessingResult(null);
                 setJobDescription('');
                 setError('');
               }}
