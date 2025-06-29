@@ -9,7 +9,7 @@ import { Card } from '../ui/Card';
 import { ResumeTemplate, ResumeAnalysis } from '../../types';
 import { ResumeService } from '../../services/resumeService';
 import { FileProcessingResult } from '../../services/fileProcessingService';
-import { Sparkles, ArrowRight, AlertCircle, Crown, CheckCircle, Clock } from 'lucide-react';
+import { Sparkles, ArrowRight, AlertCircle, Crown, CheckCircle, Clock, Zap } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
   const { profile } = useAuth();
@@ -21,6 +21,7 @@ export const Dashboard: React.FC = () => {
   const [analysis, setAnalysis] = useState<ResumeAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisStage, setAnalysisStage] = useState('');
   const [error, setError] = useState<string>('');
 
   const hasActiveSubscription = !!profile?.subscription;
@@ -29,17 +30,39 @@ export const Dashboard: React.FC = () => {
     loadTemplates();
   }, []);
 
-  // Progress simulation for better UX
+  // Enhanced progress simulation with stages
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isAnalyzing) {
       setAnalysisProgress(0);
+      setAnalysisStage('Initializing analysis...');
+      
+      const stages = [
+        { progress: 15, message: 'Extracting resume content...' },
+        { progress: 30, message: 'Analyzing job requirements...' },
+        { progress: 50, message: 'Matching skills and keywords...' },
+        { progress: 70, message: 'Optimizing content for ATS...' },
+        { progress: 85, message: 'Generating suggestions...' },
+        { progress: 95, message: 'Finalizing analysis...' }
+      ];
+      
+      let currentStage = 0;
+      
       interval = setInterval(() => {
         setAnalysisProgress(prev => {
-          if (prev >= 90) return prev; // Stop at 90% until actual completion
-          return prev + Math.random() * 15;
+          if (prev >= 95) return prev; // Stop at 95% until actual completion
+          
+          const nextProgress = prev + Math.random() * 8 + 2; // 2-10% increments
+          
+          // Update stage message based on progress
+          while (currentStage < stages.length && nextProgress >= stages[currentStage].progress) {
+            setAnalysisStage(stages[currentStage].message);
+            currentStage++;
+          }
+          
+          return Math.min(nextProgress, 95);
         });
-      }, 500);
+      }, 400);
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -74,11 +97,9 @@ export const Dashboard: React.FC = () => {
     setIsAnalyzing(true);
     setError('');
     setAnalysisProgress(0);
+    setAnalysisStage('Starting analysis...');
     
     try {
-      // Start progress simulation
-      setAnalysisProgress(10);
-
       const analysisResponse = await ResumeService.analyzeResume({
         resumeText: processingResult.text,
         jobDescription,
@@ -87,6 +108,7 @@ export const Dashboard: React.FC = () => {
 
       // Complete progress
       setAnalysisProgress(100);
+      setAnalysisStage('Analysis complete!');
 
       // Create analysis object for display
       const analysisData: ResumeAnalysis = {
@@ -126,6 +148,7 @@ export const Dashboard: React.FC = () => {
       console.error('Analysis error:', error);
       setError(error.message || 'Analysis failed. Please try again.');
       setAnalysisProgress(0);
+      setAnalysisStage('');
     } finally {
       setIsAnalyzing(false);
     }
@@ -244,20 +267,25 @@ export const Dashboard: React.FC = () => {
                   {isAnalyzing && (
                     <div className="mb-4 space-y-3">
                       <div className="flex items-center justify-center space-x-2 text-blue-600">
-                        <Clock className="w-4 h-4 animate-spin" />
-                        <span className="text-sm font-medium">Analyzing with AI...</span>
+                        <Zap className="w-5 h-5 animate-pulse" />
+                        <span className="text-sm font-medium">AI Analysis in Progress</span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="w-full bg-gray-200 rounded-full h-3">
                         <div 
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                          className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-500 relative overflow-hidden"
                           style={{ width: `${analysisProgress}%` }}
-                        ></div>
+                        >
+                          <div className="absolute inset-0 bg-white opacity-25 animate-pulse"></div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-center space-x-2">
+                        <Clock className="w-4 h-4 text-gray-500" />
+                        <p className="text-xs text-gray-600 font-medium">
+                          {analysisStage}
+                        </p>
                       </div>
                       <p className="text-xs text-gray-500">
-                        {analysisProgress < 30 && "Extracting key information..."}
-                        {analysisProgress >= 30 && analysisProgress < 60 && "Analyzing job requirements..."}
-                        {analysisProgress >= 60 && analysisProgress < 90 && "Optimizing resume content..."}
-                        {analysisProgress >= 90 && "Finalizing analysis..."}
+                        {Math.round(analysisProgress)}% complete • Estimated time: {Math.max(1, Math.ceil((100 - analysisProgress) / 20))}s remaining
                       </p>
                     </div>
                   )}
@@ -309,6 +337,7 @@ export const Dashboard: React.FC = () => {
                 setJobDescription('');
                 setError('');
                 setAnalysisProgress(0);
+                setAnalysisStage('');
               }}
             >
               Start New Analysis

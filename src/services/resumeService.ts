@@ -32,11 +32,11 @@ export class ResumeService {
         } else {
           // If Edge Function fails, fall back to local analysis
           console.warn('Edge Function failed, using fallback analysis');
-          return this.generateFallbackAnalysis(request);
+          return await this.generateFallbackAnalysis(request);
         }
       } catch (fetchError: any) {
         console.warn('Edge Function not available, using fallback analysis:', fetchError.message);
-        return this.generateFallbackAnalysis(request);
+        return await this.generateFallbackAnalysis(request);
       }
     } catch (error: any) {
       console.error('Error analyzing resume:', error);
@@ -50,58 +50,56 @@ export class ResumeService {
     }
   }
 
-  private static generateFallbackAnalysis(request: AnalysisRequest): AnalysisResponse {
-    // Simulate processing time
-    const processingDelay = new Promise(resolve => setTimeout(resolve, 2000));
+  private static async generateFallbackAnalysis(request: AnalysisRequest): Promise<AnalysisResponse> {
+    // Simulate realistic processing time (2-3 seconds)
+    await new Promise(resolve => setTimeout(resolve, 2500));
     
-    return processingDelay.then(() => {
-      // Extract keywords from job description for more realistic suggestions
-      const jobKeywords = this.extractKeywords(request.jobDescription);
-      const resumeKeywords = this.extractKeywords(request.resumeText);
-      
-      // Find missing keywords
-      const missingKeywords = jobKeywords.filter(keyword => 
-        !resumeKeywords.some(rKeyword => 
-          rKeyword.toLowerCase().includes(keyword.toLowerCase())
-        )
-      ).slice(0, 5); // Limit to 5 keywords
+    // Extract keywords from job description for more realistic suggestions
+    const jobKeywords = this.extractKeywords(request.jobDescription);
+    const resumeKeywords = this.extractKeywords(request.resumeText);
+    
+    // Find missing keywords
+    const missingKeywords = jobKeywords.filter(keyword => 
+      !resumeKeywords.some(rKeyword => 
+        rKeyword.toLowerCase().includes(keyword.toLowerCase())
+      )
+    ).slice(0, 5); // Limit to 5 keywords
 
-      const suggestions = [
-        'Optimized resume formatting for better ATS compatibility',
-        'Enhanced action verbs to demonstrate impact and achievements',
-        'Improved summary section to align with job requirements',
-        'Reorganized skills section to highlight relevant technologies',
-        ...(missingKeywords.length > 0 ? [
-          `Added relevant keywords: ${missingKeywords.join(', ')}`
-        ] : [])
-      ];
+    const suggestions = [
+      'Optimized resume formatting for better ATS compatibility',
+      'Enhanced action verbs to demonstrate impact and achievements',
+      'Improved summary section to align with job requirements',
+      'Reorganized skills section to highlight relevant technologies',
+      ...(missingKeywords.length > 0 ? [
+        `Added relevant keywords: ${missingKeywords.join(', ')}`
+      ] : [])
+    ];
 
-      // Generate a more realistic ATS score based on keyword matching
-      const keywordMatchPercentage = (resumeKeywords.length / Math.max(jobKeywords.length, 1)) * 100;
-      const baseScore = Math.min(keywordMatchPercentage, 85);
-      const atsScore = Math.floor(baseScore + Math.random() * 15) + 70; // 70-100%
+    // Generate a more realistic ATS score based on keyword matching
+    const keywordMatchPercentage = (resumeKeywords.length / Math.max(jobKeywords.length, 1)) * 100;
+    const baseScore = Math.min(keywordMatchPercentage, 85);
+    const atsScore = Math.floor(baseScore + Math.random() * 15) + 70; // 70-100%
 
-      // Create an enhanced version of the resume
-      const enhancedResume = this.enhanceResumeText(request.resumeText, missingKeywords);
+    // Create an enhanced version of the resume
+    const enhancedResume = this.enhanceResumeText(request.resumeText, missingKeywords);
 
-      return {
-        tailoredResume: enhancedResume,
-        suggestions,
-        atsScore: Math.min(atsScore, 100),
-        analysisData: {
-          keywordsAdded: missingKeywords,
-          sectionsOptimized: ['Summary', 'Experience', 'Skills'],
-          improvementAreas: [
-            'Quantify achievements with specific numbers',
-            'Add relevant industry keywords',
-            'Improve formatting consistency'
-          ],
-          originalWordCount: this.countWords(request.resumeText),
-          enhancedWordCount: this.countWords(enhancedResume),
-          keywordMatchScore: Math.round(keywordMatchPercentage)
-        }
-      };
-    }) as any; // Type assertion to match the expected return type
+    return {
+      tailoredResume: enhancedResume,
+      suggestions,
+      atsScore: Math.min(atsScore, 100),
+      analysisData: {
+        keywordsAdded: missingKeywords,
+        sectionsOptimized: ['Summary', 'Experience', 'Skills'],
+        improvementAreas: [
+          'Quantify achievements with specific numbers',
+          'Add relevant industry keywords',
+          'Improve formatting consistency'
+        ],
+        originalWordCount: this.countWords(request.resumeText),
+        enhancedWordCount: this.countWords(enhancedResume),
+        keywordMatchScore: Math.round(keywordMatchPercentage)
+      }
+    };
   }
 
   private static extractKeywords(text: string): string[] {
