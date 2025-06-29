@@ -9,7 +9,7 @@ import { Card } from '../ui/Card';
 import { ResumeTemplate, ResumeAnalysis } from '../../types';
 import { ResumeService } from '../../services/resumeService';
 import { FileProcessingResult } from '../../services/fileProcessingService';
-import { Sparkles, ArrowRight, AlertCircle, Crown } from 'lucide-react';
+import { Sparkles, ArrowRight, AlertCircle, Crown, CheckCircle, Clock } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
   const { profile } = useAuth();
@@ -20,6 +20,7 @@ export const Dashboard: React.FC = () => {
   const [templates, setTemplates] = useState<ResumeTemplate[]>([]);
   const [analysis, setAnalysis] = useState<ResumeAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
   const [error, setError] = useState<string>('');
 
   const hasActiveSubscription = !!profile?.subscription;
@@ -27,6 +28,23 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     loadTemplates();
   }, []);
+
+  // Progress simulation for better UX
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isAnalyzing) {
+      setAnalysisProgress(0);
+      interval = setInterval(() => {
+        setAnalysisProgress(prev => {
+          if (prev >= 90) return prev; // Stop at 90% until actual completion
+          return prev + Math.random() * 15;
+        });
+      }, 500);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAnalyzing]);
 
   const loadTemplates = async () => {
     try {
@@ -55,13 +73,20 @@ export const Dashboard: React.FC = () => {
 
     setIsAnalyzing(true);
     setError('');
+    setAnalysisProgress(0);
     
     try {
+      // Start progress simulation
+      setAnalysisProgress(10);
+
       const analysisResponse = await ResumeService.analyzeResume({
         resumeText: processingResult.text,
         jobDescription,
         templateId: selectedTemplate
       });
+
+      // Complete progress
+      setAnalysisProgress(100);
 
       // Create analysis object for display
       const analysisData: ResumeAnalysis = {
@@ -80,9 +105,27 @@ export const Dashboard: React.FC = () => {
         created_at: new Date().toISOString()
       };
 
+      // Save analysis to database
+      try {
+        await ResumeService.saveAnalysis({
+          resumeText: processingResult.text,
+          jobDescription,
+          templateId: selectedTemplate,
+          tailoredResume: analysisResponse.tailoredResume,
+          suggestions: analysisResponse.suggestions,
+          atsScore: analysisResponse.atsScore,
+          analysisData: analysisResponse.analysisData
+        });
+      } catch (saveError) {
+        console.warn('Failed to save analysis to database:', saveError);
+        // Continue anyway - user can still see results
+      }
+
       setAnalysis(analysisData);
     } catch (error: any) {
+      console.error('Analysis error:', error);
       setError(error.message || 'Analysis failed. Please try again.');
+      setAnalysisProgress(0);
     } finally {
       setIsAnalyzing(false);
     }
@@ -191,14 +234,37 @@ export const Dashboard: React.FC = () => {
                   </p>
                   {processingResult && (
                     <div className="mb-4 p-3 bg-green-50 rounded-lg">
-                      <p className="text-sm text-green-800">
-                        ✅ Resume processed: {processingResult.metadata.wordCount} words extracted
+                      <div className="flex items-center justify-center space-x-2 text-sm text-green-800">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Resume processed: {processingResult.metadata.wordCount} words extracted</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {isAnalyzing && (
+                    <div className="mb-4 space-y-3">
+                      <div className="flex items-center justify-center space-x-2 text-blue-600">
+                        <Clock className="w-4 h-4 animate-spin" />
+                        <span className="text-sm font-medium">Analyzing with AI...</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                          style={{ width: `${analysisProgress}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {analysisProgress < 30 && "Extracting key information..."}
+                        {analysisProgress >= 30 && analysisProgress < 60 && "Analyzing job requirements..."}
+                        {analysisProgress >= 60 && analysisProgress < 90 && "Optimizing resume content..."}
+                        {analysisProgress >= 90 && "Finalizing analysis..."}
                       </p>
                     </div>
                   )}
+
                   <Button
                     onClick={handleAnalyze}
-                    disabled={!canAnalyze}
+                    disabled={!canAnalyze || isAnalyzing}
                     isLoading={isAnalyzing}
                     className="w-full flex items-center justify-center space-x-2"
                     size="lg"
@@ -242,6 +308,7 @@ export const Dashboard: React.FC = () => {
                 setProcessingResult(null);
                 setJobDescription('');
                 setError('');
+                setAnalysisProgress(0);
               }}
             >
               Start New Analysis
