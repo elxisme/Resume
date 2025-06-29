@@ -19,6 +19,32 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onToggleForm }) => {
   const [error, setError] = useState('');
   const { register, isLoading } = useAuth();
 
+  const validatePassword = (password: string): string | null => {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long';
+    }
+    
+    const hasLowercase = /[a-z]/.test(password);
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>?/`~]/.test(password);
+    
+    if (!hasLowercase) {
+      return 'Password must contain at least one lowercase letter';
+    }
+    if (!hasUppercase) {
+      return 'Password must contain at least one uppercase letter';
+    }
+    if (!hasNumber) {
+      return 'Password must contain at least one number';
+    }
+    if (!hasSpecialChar) {
+      return 'Password must contain at least one special character';
+    }
+    
+    return null;
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
       ...prev,
@@ -30,13 +56,15 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onToggleForm }) => {
     e.preventDefault();
     setError('');
 
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
+    // Validate password strength
+    const passwordError = validatePassword(formData.password);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
       return;
     }
 
@@ -50,6 +78,10 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onToggleForm }) => {
         setError('This email is already registered. Please sign in instead.');
       } else if (err?.message?.includes('Invalid email')) {
         setError('Please enter a valid email address.');
+      } else if (err?.message?.includes('weak_password') || err?.code === 'weak_password') {
+        setError('Password does not meet security requirements. Please ensure it contains uppercase, lowercase, numbers, and special characters.');
+      } else if (err?.message?.includes('Database error saving new user')) {
+        setError('Registration failed due to a server error. Please try again or contact support if the problem persists.');
       } else if (err?.message?.includes('Password')) {
         setError('Password requirements not met. Please choose a stronger password.');
       } else {
@@ -119,8 +151,8 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onToggleForm }) => {
           value={formData.password}
           onChange={handleChange}
           required
-          placeholder="At least 6 characters"
-          helpText="Choose a strong password"
+          placeholder="Create a strong password"
+          helpText="Must contain: 8+ characters, uppercase, lowercase, number, and special character"
         />
 
         <Input
