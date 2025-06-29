@@ -4,7 +4,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { AdminService } from '../../services/adminService';
 import { Package } from '../../types';
-import { Plus, Edit, Trash2, Crown, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, Crown, Settings, X, Check } from 'lucide-react';
 
 export const PackageManager: React.FC = () => {
   const [packages, setPackages] = useState<Package[]>([]);
@@ -111,7 +111,10 @@ export const PackageManager: React.FC = () => {
                 <h4 className="font-medium text-gray-900 mb-2">Features:</h4>
                 <ul className="space-y-1">
                   {pkg.features.map((feature, index) => (
-                    <li key={index} className="text-sm text-gray-700">• {feature}</li>
+                    <li key={index} className="text-sm text-gray-700 flex items-center space-x-2">
+                      <Check className="w-3 h-3 text-green-500 flex-shrink-0" />
+                      <span>{feature}</span>
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -170,15 +173,36 @@ const PackageForm: React.FC<PackageFormProps> = ({ package: pkg, onSubmit, onCan
     price: pkg?.price || 0,
     template_access: pkg?.template_access || 1,
     analysis_limit: pkg?.analysis_limit || 5,
-    features: pkg?.features?.join('\n') || ''
+    features: pkg?.features || ['']
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit({
       ...formData,
-      features: formData.features.split('\n').filter(f => f.trim())
+      features: formData.features.filter(f => f.trim())
     });
+  };
+
+  const addFeature = () => {
+    setFormData(prev => ({
+      ...prev,
+      features: [...prev.features, '']
+    }));
+  };
+
+  const removeFeature = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      features: prev.features.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateFeature = (index: number, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      features: prev.features.map((feature, i) => i === index ? value : feature)
+    }));
   };
 
   return (
@@ -229,20 +253,85 @@ const PackageForm: React.FC<PackageFormProps> = ({ package: pkg, onSubmit, onCan
           />
         </div>
 
+        {/* Enhanced Features Input */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Features (one per line)
-          </label>
-          <textarea
-            value={formData.features}
-            onChange={(e) => setFormData(prev => ({ ...prev, features: e.target.value }))}
-            className="w-full h-32 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Enter features, one per line"
-            required
-          />
+          <div className="flex items-center justify-between mb-3">
+            <label className="block text-sm font-medium text-gray-700">
+              Package Features
+            </label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addFeature}
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Add Feature
+            </Button>
+          </div>
+          
+          <div className="space-y-2">
+            {formData.features.map((feature, index) => (
+              <div key={index} className="flex items-center space-x-2">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={feature}
+                    onChange={(e) => updateFeature(index, e.target.value)}
+                    placeholder={`Feature ${index + 1}`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                {formData.features.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeFeature(index)}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          
+          {formData.features.length === 0 && (
+            <div className="text-center py-4 border-2 border-dashed border-gray-300 rounded-lg">
+              <p className="text-gray-500 text-sm">No features added yet</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addFeature}
+                className="mt-2"
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Add First Feature
+              </Button>
+            </div>
+          )}
         </div>
 
-        <div className="flex space-x-3">
+        {/* Feature Preview */}
+        {formData.features.some(f => f.trim()) && (
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Feature Preview:</h4>
+            <ul className="space-y-1">
+              {formData.features
+                .filter(f => f.trim())
+                .map((feature, index) => (
+                  <li key={index} className="text-sm text-gray-600 flex items-center space-x-2">
+                    <Check className="w-3 h-3 text-green-500" />
+                    <span>{feature}</span>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="flex space-x-3 pt-4">
           <Button type="submit" className="flex-1">
             {pkg ? 'Update Package' : 'Create Package'}
           </Button>
