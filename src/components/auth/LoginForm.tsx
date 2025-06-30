@@ -179,16 +179,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm }) => {
           </button>
         </p>
       </div>
-
-      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-        <p className="text-sm text-blue-800">
-          <strong>Demo accounts:</strong><br />
-          Free: demo@example.com<br />
-          Premium: premium@example.com<br />
-          Admin: admin@example.com<br />
-          Password: any
-        </p>
-      </div>
     </Card>
   );
 };

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth, AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { LandingPage } from './components/landing/LandingPage';
+import { TransparentHeader } from './components/layout/TransparentHeader';
 import { Header } from './components/layout/Header';
 import { LoginForm } from './components/auth/LoginForm';
 import { RegisterForm } from './components/auth/RegisterForm';
@@ -13,6 +15,7 @@ const AppContent: React.FC = () => {
   const { user, profile, isLoading } = useAuth();
   const [showLogin, setShowLogin] = useState(true);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showAuthForm, setShowAuthForm] = useState(false);
 
   const isAuthenticated = !!user && !!profile;
 
@@ -28,6 +31,24 @@ const AppContent: React.FC = () => {
     });
   }, [user, profile, isAuthenticated, isLoading]);
 
+  const handleGetStarted = () => {
+    if (isAuthenticated) {
+      // User is already logged in, no need to show auth form
+      return;
+    }
+    setShowLogin(false); // Show register form
+    setShowAuthForm(true);
+  };
+
+  const handleSignIn = () => {
+    if (isAuthenticated) {
+      // User is already logged in, no need to show auth form
+      return;
+    }
+    setShowLogin(true); // Show login form
+    setShowAuthForm(true);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -39,20 +60,42 @@ const AppContent: React.FC = () => {
     );
   }
 
+  // Show landing page for non-authenticated users
   if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          {showLogin ? (
-            <LoginForm onToggleForm={() => setShowLogin(false)} />
-          ) : (
-            <RegisterForm onToggleForm={() => setShowLogin(true)} />
-          )}
+    if (showAuthForm) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            {showLogin ? (
+              <LoginForm onToggleForm={() => setShowLogin(false)} />
+            ) : (
+              <RegisterForm onToggleForm={() => setShowLogin(true)} />
+            )}
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => setShowAuthForm(false)}
+                className="text-gray-600 hover:text-gray-900 text-sm transition-colors"
+              >
+                ← Back to home
+              </button>
+            </div>
+          </div>
         </div>
+      );
+    }
+
+    return (
+      <div className="relative">
+        <TransparentHeader 
+          onGetStarted={handleGetStarted}
+          onSignIn={handleSignIn}
+        />
+        <LandingPage onGetStarted={handleGetStarted} />
       </div>
     );
   }
 
+  // Show dashboard for authenticated users
   return (
     <div className="min-h-screen bg-gray-50">
       <Header onUpgradeClick={() => setShowUpgradeModal(true)} />
