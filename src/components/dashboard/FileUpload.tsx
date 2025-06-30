@@ -3,6 +3,8 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, File, X, CheckCircle, AlertCircle, Eye, Info } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
+import { useErrorHandler } from '../../hooks/useErrorHandler';
+import { useToast } from '../ui/Toast';
 import { FileProcessingService, FileProcessingResult } from '../../services/fileProcessingService';
 import { formatFileSize, getFileIcon } from '../../utils/fileUtils';
 
@@ -22,46 +24,101 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string>('');
   const [showPreview, setShowPreview] = useState(false);
+  const [processingStage, setProcessingStage] = useState('');
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+  const { handleError } = useErrorHandler();
+  const { showSuccess, showError } = useToast();
+
+  const onDrop = useCallback(async (acceptedFiles: File[], rejectedFiles: any[]) => {
+    // Handle rejected files
+    if (rejectedFiles.length > 0) {
+      const rejection = rejectedFiles[0];
+      let errorMessage = 'File upload failed';
+      
+      if (rejection.errors) {
+        const error = rejection.errors[0];
+        if (error.code === 'file-too-large') {
+          errorMessage = 'File is too large. Please select a file smaller than 10MB.';
+        } else if (error.code === 'file-invalid-type') {
+          errorMessage = 'Invalid file type. Please select a PDF or DOCX file.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setError(errorMessage);
+      showError('Upload Failed', errorMessage);
+      return;
+    }
+
     if (acceptedFiles.length > 0) {
       const file = acceptedFiles[0];
       setUploading(true);
       setError('');
+      setProcessingStage('Validating file...');
 
       try {
-        // Process the file
+        // Process the file with progress updates
+        setProcessingStage('Extracting text content...');
         const result = await FileProcessingService.processFile(file);
         
+        setProcessingStage('Validating resume content...');
         // Validate resume content
         const validation = await FileProcessingService.validateResumeContent(result.text);
         
         if (!validation.isValid) {
-          setError('Resume validation failed: ' + validation.suggestions.join(', '));
+          const errorMsg = 'Resume validation failed: ' + validation.suggestions.join(', ');
+          setError(errorMsg);
+          showError('Validation Failed', errorMsg);
           setUploading(false);
           return;
         }
 
+        setProcessingStage('Processing complete!');
         onFileSelect(file, result);
+        showSuccess('File uploaded successfully!', `Extracted ${result.metadata.wordCount} words from your resume.`);
       } catch (error: any) {
         console.error('File processing error:', error);
-        setError(error.message || 'Failed to process file');
+        
+        let errorMessage = 'Failed to process file';
+        
+        if (error.message?.includes('PDF')) {
+          errorMessage = 'Unable to extract text from PDF. Please ensure it contains selectable text, not just images.';
+        } else if (error.message?.includes('DOCX')) {
+          errorMessage = 'Unable to process DOCX file. Please ensure it\'s a valid Word document.';
+        } else if (error.message?.includes('Insufficient text')) {
+          errorMessage = 'The file doesn\'t contain enough readable text. Please upload a complete resume.';
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        
+        setError(errorMessage);
+        handleError(error, 'File Upload', { 
+          showToast: true,
+          fallbackMessage: errorMessage 
+        });
       } finally {
         setUploading(false);
+        setProcessingStage('');
       }
     }
-  }, [onFileSelect]);
+  }, [onFileSelect, handleError, showSuccess, showError]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
     accept: {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
     },
     maxFiles: 1,
+    maxSize: 10 * 1024 * 1024, // 10MB
     multiple: false,
     disabled: uploading
   });
+
+  const clearError = () => {
+    setError('');
+  };
 
   if (selectedFile && processingResult) {
     return (
@@ -156,9 +213,23 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     <Card className="text-center" padding="lg">
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex items-center space-x-2 text-red-700">
-            <AlertCircle className="w-5 h-5" />
-            <p className="text-sm">{error}</p>
+          <div className="flex items-start space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 text-left">
+              <p className="text-sm text-red-700">{error}</p>
+              {error.includes('PDF') && (
+                <p className="text-xs text-red-600 mt-1">
+                  Tip: Try converting your PDF to a Word document if it contains scanned images.
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={clearError}
+              className="text-red-400 hover:text-red-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
@@ -167,8 +238,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         {...getRootProps()}
         className={`
           border-2 border-dashed rounded-xl p-8 cursor-pointer transition-all duration-200
-          ${isDragActive 
+          ${isDragActive && !isDragReject
             ? 'border-blue-500 bg-blue-50' 
+            : isDragReject
+            ? 'border-red-500 bg-red-50'
             : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
           }
           ${uploading ? 'pointer-events-none opacity-75' : ''}
@@ -183,20 +256,30 @@ export const FileUpload: React.FC<FileUploadProps> = ({
               <div>
                 <p className="text-lg font-medium text-gray-900">Processing your resume...</p>
                 <p className="text-gray-500 mt-1">
-                  Extracting text and validating content
+                  {processingStage || 'Extracting text and validating content'}
                 </p>
               </div>
             </>
           ) : (
             <>
-              <Upload className={`mx-auto w-12 h-12 ${isDragActive ? 'text-blue-500' : 'text-gray-400'}`} />
+              <Upload className={`mx-auto w-12 h-12 ${
+                isDragActive && !isDragReject ? 'text-blue-500' : 
+                isDragReject ? 'text-red-500' : 'text-gray-400'
+              }`} />
               
               <div>
                 <p className="text-lg font-medium text-gray-900">
-                  {isDragActive ? 'Drop your resume here' : 'Upload your resume'}
+                  {isDragReject 
+                    ? 'Invalid file type' 
+                    : isDragActive 
+                    ? 'Drop your resume here' 
+                    : 'Upload your resume'
+                  }
                 </p>
                 <p className="text-gray-500 mt-1">
-                  {isDragActive
+                  {isDragReject
+                    ? 'Please select a PDF or DOCX file'
+                    : isDragActive
                     ? 'Release to upload'
                     : 'Drag & drop your resume here, or click to browse'
                   }

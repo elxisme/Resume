@@ -7,7 +7,7 @@ export class ResumeService {
       // Get the authenticated user session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session) {
-        throw new Error('User not authenticated');
+        throw new Error('User not authenticated. Please sign in and try again.');
       }
 
       // First, try to call the Edge Function
@@ -29,12 +29,24 @@ export class ResumeService {
           } else {
             throw new Error(result.error || 'Analysis failed');
           }
+        } else if (response.status === 401) {
+          throw new Error('Authentication expired. Please sign in again.');
+        } else if (response.status === 403) {
+          throw new Error('You do not have permission to perform this action.');
+        } else if (response.status === 429) {
+          throw new Error('Too many requests. Please wait a moment and try again.');
         } else {
           // If Edge Function fails, fall back to local analysis
           console.warn('Edge Function failed, using fallback analysis');
           return await this.generateFallbackAnalysis(request);
         }
       } catch (fetchError: any) {
+        if (fetchError.message?.includes('Authentication') || 
+            fetchError.message?.includes('permission') ||
+            fetchError.message?.includes('Too many requests')) {
+          throw fetchError;
+        }
+        
         console.warn('Edge Function not available, using fallback analysis:', fetchError.message);
         return await this.generateFallbackAnalysis(request);
       }
@@ -44,6 +56,14 @@ export class ResumeService {
       // Provide more specific error messages
       if (error.message?.includes('User not authenticated')) {
         throw new Error('Please sign in to analyze your resume');
+      } else if (error.message?.includes('Authentication expired')) {
+        throw new Error('Your session has expired. Please sign in again.');
+      } else if (error.message?.includes('permission')) {
+        throw new Error('You do not have permission to perform this action.');
+      } else if (error.message?.includes('Too many requests')) {
+        throw new Error('You have reached the rate limit. Please wait a moment and try again.');
+      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        throw new Error('Network error. Please check your internet connection and try again.');
       }
       
       throw error;
@@ -157,32 +177,42 @@ export class ResumeService {
   }
 
   static async getUserAnalyses(limit = 10) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
-    const { data, error } = await supabase
-      .from('resume_analyses')
-      .select(`
-        *,
-        template:resume_templates(name, category)
-      `)
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+      const { data, error } = await supabase
+        .from('resume_analyses')
+        .select(`
+          *,
+          template:resume_templates(name, category)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(limit);
 
-    if (error) throw error;
-    return data;
+      if (error) throw error;
+      return data;
+    } catch (error: any) {
+      console.error('Error fetching user analyses:', error);
+      throw new Error('Failed to load analysis history. Please try again.');
+    }
   }
 
   static async getTemplates() {
-    const { data, error } = await supabase
-      .from('resume_templates')
-      .select('*')
-      .eq('is_active', true)
-      .order('created_at');
+    try {
+      const { data, error } = await supabase
+        .from('resume_templates')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at');
 
-    if (error) throw error;
-    return data;
+      if (error) throw error;
+      return data;
+    } catch (error: any) {
+      console.error('Error fetching templates:', error);
+      throw new Error('Failed to load resume templates. Please try again.');
+    }
   }
 
   static async saveAnalysis(analysis: {
@@ -194,25 +224,30 @@ export class ResumeService {
     atsScore: number;
     analysisData: any;
   }) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
-    const { data, error } = await supabase
-      .from('resume_analyses')
-      .insert({
-        user_id: user.id,
-        original_resume_text: analysis.resumeText,
-        job_description: analysis.jobDescription,
-        tailored_resume_text: analysis.tailoredResume,
-        template_id: analysis.templateId,
-        suggestions: analysis.suggestions,
-        ats_score: analysis.atsScore,
-        analysis_data: analysis.analysisData
-      })
-      .select()
-      .single();
+      const { data, error } = await supabase
+        .from('resume_analyses')
+        .insert({
+          user_id: user.id,
+          original_resume_text: analysis.resumeText,
+          job_description: analysis.jobDescription,
+          tailored_resume_text: analysis.tailoredResume,
+          template_id: analysis.templateId,
+          suggestions: analysis.suggestions,
+          ats_score: analysis.atsScore,
+          analysis_data: analysis.analysisData
+        })
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw error;
+      return data;
+    } catch (error: any) {
+      console.error('Error saving analysis:', error);
+      throw new Error('Failed to save analysis. Please try again.');
+    }
   }
 }
