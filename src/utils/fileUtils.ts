@@ -69,7 +69,7 @@ export const generatePDF = async (
   filename: string = 'resume.pdf'
 ) => {
   try {
-    // Dynamic imports to reduce initial bundle size
+    // Dynamic imports to reduce initial bundle size and improve cross-browser compatibility
     const [
       { default: jsPDF },
       { default: html2canvas },
@@ -84,49 +84,72 @@ export const generatePDF = async (
     const { ResumeDocument } = await import('../components/resume/ResumeDocument');
     const React = await import('react');
 
-    // Create a temporary container
+    // Create a temporary container with better cross-browser support
     const container = document.createElement('div');
-    container.style.position = 'absolute';
-    container.style.left = '-9999px';
-    container.style.top = '-9999px';
-    container.style.width = '8.5in';
-    container.style.backgroundColor = '#ffffff';
+    container.style.cssText = `
+      position: absolute;
+      left: -9999px;
+      top: -9999px;
+      width: 8.5in;
+      background-color: #ffffff;
+      font-family: Arial, sans-serif;
+      visibility: hidden;
+      pointer-events: none;
+    `;
     document.body.appendChild(container);
 
     try {
       // Render the React component
       const root = createRoot(container);
       
-      await new Promise<void>((resolve) => {
-        root.render(
-          React.createElement(ResumeDocument, {
-            resumeText,
-            templateData,
-            templateCategory
-          })
-        );
-        
-        // Wait for rendering to complete
-        setTimeout(resolve, 1000);
+      await new Promise<void>((resolve, reject) => {
+        try {
+          root.render(
+            React.createElement(ResumeDocument, {
+              resumeText,
+              templateData,
+              templateCategory
+            })
+          );
+          
+          // Wait for rendering to complete with timeout for better reliability
+          const timeoutId = setTimeout(() => {
+            reject(new Error('Rendering timeout'));
+          }, 10000); // 10 second timeout
+          
+          setTimeout(() => {
+            clearTimeout(timeoutId);
+            resolve();
+          }, 1500); // Increased wait time for better cross-browser compatibility
+        } catch (error) {
+          reject(error);
+        }
       });
 
-      // Capture the rendered content as canvas
+      // Capture the rendered content as canvas with enhanced options for cross-browser compatibility
       const canvas = await html2canvas(container, {
         scale: 2, // Higher resolution
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false, // Better security
         backgroundColor: '#ffffff',
         width: 816, // 8.5 inches at 96 DPI
         height: 1056, // 11 inches at 96 DPI
         scrollX: 0,
-        scrollY: 0
+        scrollY: 0,
+        windowWidth: 816,
+        windowHeight: 1056,
+        ignoreElements: (element) => {
+          // Ignore elements that might cause issues in some browsers
+          return element.tagName === 'SCRIPT' || element.tagName === 'STYLE';
+        }
       });
 
-      // Create PDF
+      // Create PDF with better error handling
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'in',
-        format: 'letter'
+        format: 'letter',
+        compress: true
       });
 
       // Calculate dimensions
@@ -134,12 +157,10 @@ export const generatePDF = async (
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       
       // Add image to PDF
-      const imgData = canvas.toDataURL('image/png', 1.0);
+      const imgData = canvas.toDataURL('image/png', 0.95); // Slightly compressed for better performance
       
-      // If content is longer than one page, we might need to split it
+      // If content is longer than one page, scale it to fit
       if (imgHeight > 11) {
-        // For now, we'll scale it to fit one page
-        // In a more advanced implementation, we could split into multiple pages
         const scaledHeight = 10.5; // Leave some margin
         pdf.addImage(imgData, 'PNG', 0.25, 0.25, imgWidth - 0.5, scaledHeight);
       } else {
@@ -150,20 +171,50 @@ export const generatePDF = async (
       root.unmount();
       document.body.removeChild(container);
 
-      // Save the PDF
-      pdf.save(filename);
+      // Save the PDF with better cross-browser support
+      try {
+        pdf.save(filename);
+      } catch (saveError) {
+        // Fallback for browsers that don't support direct save
+        const pdfBlob = pdf.output('blob');
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
       
     } catch (renderError) {
       // Clean up on error
-      document.body.removeChild(container);
+      if (document.body.contains(container)) {
+        document.body.removeChild(container);
+      }
       throw renderError;
     }
 
   } catch (error) {
     console.error('PDF generation error:', error);
-    throw new Error('Failed to generate PDF. Please try again.');
+    
+    // Provide more specific error messages for different browsers
+    let errorMessage = 'Failed to generate PDF. ';
+    
+    if (error instanceof Error) {
+      if (error.message.includes('timeout')) {
+        errorMessage += 'The process took too long. Please try again.';
+      } else if (error.message.includes('canvas')) {
+        errorMessage += 'Unable to render the resume. Please try a different browser.';
+      } else if (error.message.includes('memory')) {
+        errorMessage += 'Insufficient memory. Please close other tabs and try again.';
+      } else {
+        errorMessage += 'Please try again or use a different browser.';
+      }
+    } else {
+      errorMessage += 'Please try again or use a different browser.';
+    }
+    
+    throw new Error(errorMessage);
   }
 };
-
-// Remove the old generateDOCX function as it doesn't provide proper formatting
-// We'll focus on high-quality PDF generation instead

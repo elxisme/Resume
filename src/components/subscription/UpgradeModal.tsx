@@ -3,7 +3,9 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Package } from '../../types';
 import { SubscriptionService } from '../../services/subscriptionService';
-import { Crown, Check, X, Loader } from 'lucide-react';
+import { useErrorHandler } from '../../hooks/useErrorHandler';
+import { useToast } from '../ui/Toast';
+import { Crown, Check, X, Loader, AlertCircle } from 'lucide-react';
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -22,6 +24,9 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
 
+  const { handleError } = useErrorHandler();
+  const { showSuccess, showError } = useToast();
+
   useEffect(() => {
     if (isOpen) {
       loadPackages();
@@ -31,27 +36,42 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   const loadPackages = async () => {
     try {
       setError('');
+      setIsLoading(true);
       const data = await SubscriptionService.getPackages();
-      setPackages(data.filter(pkg => pkg.price > 0)); // Only show paid packages
-      setIsLoading(false);
+      const paidPackages = data.filter(pkg => pkg.price > 0); // Only show paid packages
+      setPackages(paidPackages);
+      
+      // Auto-select the first package if available
+      if (paidPackages.length > 0) {
+        setSelectedPackage(paidPackages[0].id);
+      }
     } catch (error: any) {
       console.error('Error loading packages:', error);
-      setError('Failed to load subscription packages');
+      const errorMessage = 'Failed to load subscription packages. Please try again.';
+      setError(errorMessage);
+      handleError(error, 'Package Loading', { showToast: false });
+    } finally {
       setIsLoading(false);
     }
   };
 
   const handleSubscribe = async () => {
-    if (!selectedPackage) return;
+    if (!selectedPackage) {
+      showError('Selection Required', 'Please select a subscription package.');
+      return;
+    }
     
     setIsProcessing(true);
     setError('');
     
     try {
+      showSuccess('Initializing Payment...', 'Please wait while we prepare your subscription.');
+      
       const paymentData = await SubscriptionService.initializePayment(selectedPackage);
       
-      // Redirect to Paystack checkout
+      // Redirect to payment page
       if (paymentData.data?.authorization_url) {
+        // Use window.location.href for better cross-browser compatibility
         window.location.href = paymentData.data.authorization_url;
       } else {
         throw new Error('Payment initialization failed - no authorization URL received');
@@ -59,8 +79,36 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
       
     } catch (error: any) {
       console.error('Subscription failed:', error);
-      setError(error.message || 'Subscription failed. Please try again.');
+      
+      let errorMessage = 'Subscription failed. Please try again.';
+      
+      if (error.message?.includes('authentication') || error.message?.includes('unauthorized')) {
+        errorMessage = 'Your session has expired. Please sign in again and try subscribing.';
+      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      } else if (error.message?.includes('payment')) {
+        errorMessage = 'Payment service is temporarily unavailable. Please try again in a few minutes.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
+      handleError(error, 'Subscription', { showToast: false });
+    } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handlePackageSelect = (packageId: string) => {
+    if (!isProcessing) {
+      setSelectedPackage(packageId);
+      setError(''); // Clear any previous errors
+    }
+  };
+
+  const handleClose = () => {
+    if (!isProcessing) {
+      onClose();
     }
   };
 
@@ -76,9 +124,10 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
               <p className="text-gray-600 mt-1">Unlock all features and get unlimited access</p>
             </div>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               disabled={isProcessing}
+              aria-label="Close modal"
             >
               <X className="w-5 h-5 text-gray-500" />
             </button>
@@ -88,13 +137,37 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
         <div className="p-6">
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-red-700 text-sm">{error}</p>
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-red-700 text-sm">{error}</p>
+                  {error.includes('session has expired') && (
+                    <p className="text-red-600 text-xs mt-1">
+                      Please refresh the page and sign in again before subscribing.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader className="w-8 h-8 animate-spin text-blue-600" />
+              <div className="text-center">
+                <Loader className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+                <p className="text-gray-600">Loading subscription packages...</p>
+              </div>
+            </div>
+          ) : packages.length === 0 ? (
+            <div className="text-center py-12">
+              <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Packages Available</h3>
+              <p className="text-gray-600 mb-4">
+                We're currently updating our subscription packages. Please try again later.
+              </p>
+              <Button onClick={loadPackages} variant="outline">
+                Retry
+              </Button>
             </div>
           ) : (
             <>
@@ -104,10 +177,10 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
                     key={pkg.id}
                     className={`cursor-pointer transition-all duration-200 ${
                       selectedPackage === pkg.id
-                        ? 'ring-2 ring-blue-500 border-blue-500'
-                        : 'hover:border-gray-300'
-                    }`}
-                    onClick={() => !isProcessing && setSelectedPackage(pkg.id)}
+                        ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50'
+                        : 'hover:border-gray-300 hover:shadow-md'
+                    } ${isProcessing ? 'opacity-75 cursor-not-allowed' : ''}`}
+                    onClick={() => handlePackageSelect(pkg.id)}
                   >
                     <div className="space-y-4">
                       <div className="flex justify-between items-start">
@@ -154,7 +227,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
                       </div>
 
                       {selectedPackage === pkg.id && (
-                        <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="p-3 bg-blue-100 rounded-lg border border-blue-200">
                           <div className="flex items-center space-x-2">
                             <Check className="w-4 h-4 text-blue-600" />
                             <span className="text-sm font-medium text-blue-800">Selected Plan</span>
@@ -182,6 +255,17 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
                 <p className="text-xs text-gray-400 mt-1">
                   You will be redirected to Paystack's secure checkout page
                 </p>
+              </div>
+
+              {/* Additional Information */}
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-2">What happens next?</h4>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  <li>• You'll be redirected to our secure payment processor</li>
+                  <li>• Complete your payment using your preferred method</li>
+                  <li>• Your premium features will be activated immediately</li>
+                  <li>• You can cancel or modify your subscription anytime</li>
+                </ul>
               </div>
             </>
           )}

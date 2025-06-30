@@ -42,7 +42,7 @@ export const ResumeDocument: React.FC<ResumeDocumentProps> = ({
 }) => {
   const parsedResume = parseResumeText(resumeText);
   const colors = templateData?.colors || { primary: '#2563eb', secondary: '#64748b' };
-  const fonts = templateData?.fonts || { heading: 'Inter', body: 'Inter' };
+  const fonts = templateData?.fonts || { heading: 'Arial, sans-serif', body: 'Arial, sans-serif' };
 
   const getTemplateStyles = () => {
     const baseStyles = {

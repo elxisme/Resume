@@ -36,9 +36,10 @@ export const Dashboard: React.FC = () => {
     loadTemplates();
   }, []);
 
-  // Enhanced progress simulation with stages
+  // Enhanced progress simulation with stages - Fixed for cross-browser compatibility
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: NodeJS.Timeout | null = null;
+    
     if (isAnalyzing) {
       setAnalysisProgress(0);
       setAnalysisStage('Initializing analysis...');
@@ -54,7 +55,7 @@ export const Dashboard: React.FC = () => {
       
       let currentStage = 0;
       
-      interval = setInterval(() => {
+      const updateProgress = () => {
         setAnalysisProgress(prev => {
           if (prev >= 95) return prev; // Stop at 95% until actual completion
           
@@ -68,10 +69,17 @@ export const Dashboard: React.FC = () => {
           
           return Math.min(nextProgress, 95);
         });
-      }, 400);
+      };
+      
+      // Use a more reliable interval approach for cross-browser compatibility
+      interval = setInterval(updateProgress, 400);
     }
+    
     return () => {
-      if (interval) clearInterval(interval);
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
     };
   }, [isAnalyzing]);
 
