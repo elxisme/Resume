@@ -65,7 +65,7 @@ export class FileProcessingService {
 
   private static async extractTextFromPDF(file: File): Promise<{ text: string; pageCount: number }> {
     try {
-      // Dynamic import to avoid bundling issues
+      // Dynamic import to reduce initial bundle size
       const pdfjsLib = await import('pdfjs-dist');
       
       // Set worker source with fallback options
@@ -161,7 +161,7 @@ export class FileProcessingService {
 
   private static async extractTextFromDOCX(file: File): Promise<string> {
     try {
-      // Dynamic import to avoid bundling issues
+      // Dynamic import to reduce initial bundle size
       const mammoth = await import('mammoth');
       
       const arrayBuffer = await file.arrayBuffer();

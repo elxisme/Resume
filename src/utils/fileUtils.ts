@@ -64,8 +64,8 @@ export const downloadFile = (content: string, filename: string, type: string) =>
 
 export const generatePDF = async (content: string, filename: string = 'resume.pdf') => {
   try {
-    // Dynamic import to avoid bundling issues
-    const jsPDF = (await import('jspdf')).default;
+    // Dynamic import to avoid bundling issues and reduce initial bundle size
+    const { default: jsPDF } = await import('jspdf');
     
     const doc = new jsPDF();
     
