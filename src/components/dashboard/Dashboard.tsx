@@ -9,6 +9,9 @@ import { Card } from '../ui/Card';
 import { ResumeTemplate, ResumeAnalysis } from '../../types';
 import { ResumeService } from '../../services/resumeService';
 import { FileProcessingResult } from '../../services/fileProcessingService';
+import { generatePDF } from '../../utils/fileUtils';
+import { useErrorHandler } from '../../hooks/useErrorHandler';
+import { useToast } from '../ui/Toast';
 import { Sparkles, ArrowRight, AlertCircle, Crown, CheckCircle, Clock, Zap } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
@@ -23,6 +26,9 @@ export const Dashboard: React.FC = () => {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisStage, setAnalysisStage] = useState('');
   const [error, setError] = useState<string>('');
+
+  const { handleError } = useErrorHandler();
+  const { showSuccess, showError } = useToast();
 
   const hasActiveSubscription = !!profile?.subscription;
 
@@ -81,7 +87,7 @@ export const Dashboard: React.FC = () => {
         setSelectedTemplate(availableTemplate.id);
       }
     } catch (error) {
-      console.error('Error loading templates:', error);
+      handleError(error, 'Template Loading');
     }
   };
 
@@ -110,6 +116,9 @@ export const Dashboard: React.FC = () => {
       setAnalysisProgress(100);
       setAnalysisStage('Analysis complete!');
 
+      // Get the selected template data
+      const selectedTemplateData = templates.find(t => t.id === selectedTemplate);
+
       // Create analysis object for display
       const analysisData: ResumeAnalysis = {
         id: Date.now().toString(),
@@ -122,7 +131,8 @@ export const Dashboard: React.FC = () => {
         ats_score: analysisResponse.atsScore,
         analysis_data: {
           ...analysisResponse.analysisData,
-          fileMetadata: processingResult.metadata
+          fileMetadata: processingResult.metadata,
+          template: selectedTemplateData
         },
         created_at: new Date().toISOString()
       };
@@ -144,39 +154,42 @@ export const Dashboard: React.FC = () => {
       }
 
       setAnalysis(analysisData);
+      showSuccess('Analysis Complete!', 'Your resume has been successfully optimized.');
     } catch (error: any) {
       console.error('Analysis error:', error);
       setError(error.message || 'Analysis failed. Please try again.');
       setAnalysisProgress(0);
       setAnalysisStage('');
+      handleError(error, 'Resume Analysis');
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleDownload = (format: 'pdf' | 'docx') => {
+  const handleDownload = async (format: 'pdf') => {
     if (!analysis) return;
     
-    // In production, generate actual files using the file utils
-    import('../../utils/fileUtils').then(({ generatePDF, generateDOCX }) => {
-      const content = analysis.tailored_resume_text || '';
-      const filename = `tailored-resume-${Date.now()}`;
+    try {
+      const selectedTemplateData = templates.find(t => t.id === analysis.template_id);
       
-      if (format === 'pdf') {
-        generatePDF(content, `${filename}.pdf`);
-      } else {
-        generateDOCX(content, `${filename}.docx`);
-      }
-    }).catch(error => {
+      await generatePDF(
+        analysis.tailored_resume_text || analysis.original_resume_text,
+        selectedTemplateData?.template_data || {},
+        selectedTemplateData?.category || 'modern',
+        `tailored-resume-${Date.now()}.pdf`
+      );
+    } catch (error) {
       console.error('Download error:', error);
-      setError('Failed to generate file. Please try again.');
-    });
+      handleError(error, 'PDF Download', {
+        fallbackMessage: 'Failed to generate PDF. Please try again.'
+      });
+    }
   };
 
   const handlePreview = () => {
     if (!analysis) return;
-    // In production, open a modal with formatted resume preview
-    alert('Preview feature: Would show formatted resume with selected template');
+    showSuccess('Preview Feature', 'Preview functionality will open the formatted resume in a new window.');
+    // In production, this would open a modal or new window with the formatted resume
   };
 
   const canAnalyze = processingResult && jobDescription.trim() && selectedTemplate;

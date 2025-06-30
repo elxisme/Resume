@@ -62,84 +62,108 @@ export const downloadFile = (content: string, filename: string, type: string) =>
   URL.revokeObjectURL(url);
 };
 
-export const generatePDF = async (content: string, filename: string = 'resume.pdf') => {
+export const generatePDF = async (
+  resumeText: string, 
+  templateData: any, 
+  templateCategory: string = 'modern',
+  filename: string = 'resume.pdf'
+) => {
   try {
-    // Dynamic import to avoid bundling issues and reduce initial bundle size
-    const { default: jsPDF } = await import('jspdf');
-    
-    const doc = new jsPDF();
-    
-    // Set font and size
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(12);
-    
-    // Split content into lines that fit the page width
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 20;
-    const maxLineWidth = pageWidth - (margin * 2);
-    
-    const lines = doc.splitTextToSize(content, maxLineWidth);
-    
-    // Add text to PDF with page breaks
-    let y = margin;
-    const lineHeight = 7;
-    const pageHeight = doc.internal.pageSize.getHeight();
-    
-    lines.forEach((line: string) => {
-      if (y + lineHeight > pageHeight - margin) {
-        doc.addPage();
-        y = margin;
-      }
+    // Dynamic imports to reduce initial bundle size
+    const [
+      { default: jsPDF },
+      { default: html2canvas },
+      { createRoot }
+    ] = await Promise.all([
+      import('jspdf'),
+      import('html2canvas'),
+      import('react-dom/client')
+    ]);
+
+    // Dynamically import the ResumeDocument component
+    const { ResumeDocument } = await import('../components/resume/ResumeDocument');
+    const React = await import('react');
+
+    // Create a temporary container
+    const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.top = '-9999px';
+    container.style.width = '8.5in';
+    container.style.backgroundColor = '#ffffff';
+    document.body.appendChild(container);
+
+    try {
+      // Render the React component
+      const root = createRoot(container);
       
-      doc.text(line, margin, y);
-      y += lineHeight;
-    });
-    
-    // Save the PDF
-    doc.save(filename);
+      await new Promise<void>((resolve) => {
+        root.render(
+          React.createElement(ResumeDocument, {
+            resumeText,
+            templateData,
+            templateCategory
+          })
+        );
+        
+        // Wait for rendering to complete
+        setTimeout(resolve, 1000);
+      });
+
+      // Capture the rendered content as canvas
+      const canvas = await html2canvas(container, {
+        scale: 2, // Higher resolution
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        width: 816, // 8.5 inches at 96 DPI
+        height: 1056, // 11 inches at 96 DPI
+        scrollX: 0,
+        scrollY: 0
+      });
+
+      // Create PDF
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'letter'
+      });
+
+      // Calculate dimensions
+      const imgWidth = 8.5;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      // Add image to PDF
+      const imgData = canvas.toDataURL('image/png', 1.0);
+      
+      // If content is longer than one page, we might need to split it
+      if (imgHeight > 11) {
+        // For now, we'll scale it to fit one page
+        // In a more advanced implementation, we could split into multiple pages
+        const scaledHeight = 10.5; // Leave some margin
+        pdf.addImage(imgData, 'PNG', 0.25, 0.25, imgWidth - 0.5, scaledHeight);
+      } else {
+        pdf.addImage(imgData, 'PNG', 0.25, 0.25, imgWidth - 0.5, imgHeight);
+      }
+
+      // Clean up
+      root.unmount();
+      document.body.removeChild(container);
+
+      // Save the PDF
+      pdf.save(filename);
+      
+    } catch (renderError) {
+      // Clean up on error
+      document.body.removeChild(container);
+      throw renderError;
+    }
+
   } catch (error) {
     console.error('PDF generation error:', error);
     throw new Error('Failed to generate PDF. Please try again.');
   }
 };
 
-export const generateDOCX = async (content: string, filename: string = 'resume.docx') => {
-  try {
-    // For DOCX generation, we'll create a simple HTML-based approach
-    // In a production environment, you might want to use a library like docx
-    
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <title>Resume</title>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; }
-            h1, h2, h3 { color: #333; }
-            p { margin-bottom: 10px; }
-          </style>
-        </head>
-        <body>
-          <pre style="white-space: pre-wrap; font-family: Arial, sans-serif;">${content}</pre>
-        </body>
-      </html>
-    `;
-    
-    const blob = new Blob([htmlContent], { 
-      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
-    });
-    
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('DOCX generation error:', error);
-    throw new Error('Failed to generate DOCX. Please try again.');
-  }
-};
+// Remove the old generateDOCX function as it doesn't provide proper formatting
+// We'll focus on high-quality PDF generation instead
