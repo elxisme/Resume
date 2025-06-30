@@ -38,6 +38,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     // Clear any stale auth tokens on app start
     const clearStaleTokens = async () => {
       try {
@@ -66,26 +68,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.warn('Session error:', error);
           // Clear stale data on session errors
           await supabase.auth.signOut();
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setIsLoading(false);
-        } else {
-          setSession(initialSession);
-          setUser(initialSession?.user ?? null);
-          
-          if (initialSession?.user) {
-            await fetchProfile(initialSession.user.id);
-          } else {
+          if (mounted) {
+            setSession(null);
+            setUser(null);
+            setProfile(null);
             setIsLoading(false);
+          }
+        } else {
+          if (mounted) {
+            setSession(initialSession);
+            setUser(initialSession?.user ?? null);
+            
+            if (initialSession?.user) {
+              await fetchProfile(initialSession.user.id);
+            } else {
+              setIsLoading(false);
+            }
           }
         }
       } catch (error) {
         console.error('Error getting initial session:', error);
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        setIsLoading(false);
+        if (mounted) {
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setIsLoading(false);
+        }
       }
     };
 
@@ -96,19 +104,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       async (event, newSession) => {
         console.log('Auth state changed:', event, newSession?.user?.email);
         
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
+        if (mounted) {
+          setSession(newSession);
+          setUser(newSession?.user ?? null);
 
-        if (newSession?.user) {
-          await fetchProfile(newSession.user.id);
-        } else {
-          setProfile(null);
-          setIsLoading(false); // Explicitly set loading to false when no user
+          if (newSession?.user) {
+            await fetchProfile(newSession.user.id);
+          } else {
+            setProfile(null);
+            setIsLoading(false);
+          }
         }
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchProfile = async (userId: string) => {
@@ -162,23 +175,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error fetching profile:', error);
       setProfile(null);
     } finally {
-      setIsLoading(false); // Always set loading to false after profile fetch attempt
+      setIsLoading(false);
     }
   };
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) throw error;
-      // Don't call fetchProfile here - onAuthStateChange will handle it
+      
+      // The onAuthStateChange listener will handle the rest
+      // Don't set isLoading to false here - let the auth state change handle it
     } catch (error: any) {
       console.error('Login error:', error);
-      setIsLoading(false); // Set loading to false on error
+      setIsLoading(false);
       
       // Provide more specific error messages
       if (error.message?.includes('Invalid login credentials')) {
@@ -189,7 +204,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(error.message || 'Login failed');
       }
     }
-    // Don't set isLoading to false here - let onAuthStateChange handle it
   };
 
   const register = async (data: RegisterData) => {
@@ -214,11 +228,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         throw error;
       }
-      // Don't create profile manually - the database trigger handles it
-      // Don't set isLoading to false here - let onAuthStateChange handle it
+      // The onAuthStateChange listener will handle the rest
     } catch (error: any) {
       console.error('Registration error:', error);
-      setIsLoading(false); // Set loading to false on error
+      setIsLoading(false);
       
       // Provide more specific error messages
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
@@ -244,7 +257,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Clear any remaining local storage
       localStorage.removeItem('supabase.auth.token');
       
-      // Don't clear state manually - onAuthStateChange will handle it
     } catch (error: any) {
       console.error('Logout error:', error);
       // Force clear state even on error

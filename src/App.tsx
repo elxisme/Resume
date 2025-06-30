@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth, AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -15,6 +15,18 @@ const AppContent: React.FC = () => {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const isAuthenticated = !!user && !!profile;
+
+  // Debug logging
+  useEffect(() => {
+    console.log('App state:', { 
+      user: !!user, 
+      profile: !!profile, 
+      isAuthenticated, 
+      isLoading,
+      userEmail: user?.email,
+      profileName: profile ? `${profile.first_name} ${profile.last_name}` : null
+    });
+  }, [user, profile, isAuthenticated, isLoading]);
 
   if (isLoading) {
     return (
