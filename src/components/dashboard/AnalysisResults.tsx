@@ -1,35 +1,52 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { ResumeAnalysis } from '../../types';
-import { Download, Eye, BarChart3, CheckCircle, AlertCircle } from 'lucide-react';
+import { BarChart3, CheckCircle, AlertCircle, Download, Edit3, Copy } from 'lucide-react';
 import { useErrorHandler } from '../../hooks/useErrorHandler';
 import { useToast } from '../ui/Toast';
 
 interface AnalysisResultsProps {
   analysis: ResumeAnalysis;
-  onDownload: (format: 'pdf') => void;
-  onPreview: () => void;
+  tailoredResumeText: string;
+  onDownload: (content: string, filename: string) => void;
 }
 
 export const AnalysisResults: React.FC<AnalysisResultsProps> = ({
   analysis,
-  onDownload,
-  onPreview
+  tailoredResumeText,
+  onDownload
 }) => {
+  const [editableContent, setEditableContent] = useState(tailoredResumeText);
+  const [isEditing, setIsEditing] = useState(false);
   const { handleError } = useErrorHandler();
   const { showSuccess } = useToast();
 
-  const handleDownloadClick = async (format: 'pdf') => {
+  const handleDownloadClick = () => {
     try {
-      showSuccess('Generating PDF...', 'Please wait while we create your professional resume.');
-      await onDownload(format);
-      showSuccess('Download Complete!', 'Your resume has been downloaded successfully.');
+      const filename = `tailored-resume-${new Date().toISOString().split('T')[0]}.md`;
+      onDownload(editableContent, filename);
     } catch (error) {
-      handleError(error, 'PDF Download', {
+      handleError(error, 'Download', {
         fallbackMessage: 'Failed to download resume. Please try again.'
       });
     }
+  };
+
+  const handleCopyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(editableContent);
+      showSuccess('Copied!', 'Resume content copied to clipboard.');
+    } catch (error) {
+      handleError(error, 'Copy to Clipboard', {
+        fallbackMessage: 'Failed to copy to clipboard. Please try again.'
+      });
+    }
+  };
+
+  const resetToOriginal = () => {
+    setEditableContent(tailoredResumeText);
+    setIsEditing(false);
   };
 
   return (
@@ -129,38 +146,78 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({
         )}
       </Card>
 
-      {/* Download Options */}
+      {/* Tailored Resume (Markdown) */}
       <Card>
         <div className="mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Download Your Resume</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold text-gray-900">Your Tailored Resume (Markdown)</h3>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+                className="flex items-center space-x-1"
+              >
+                <Edit3 className="w-4 h-4" />
+                <span>{isEditing ? 'View Mode' : 'Edit Mode'}</span>
+              </Button>
+              {isEditing && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetToOriginal}
+                  className="text-gray-600 hover:text-gray-800"
+                >
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
           <p className="text-gray-600 text-sm">
-            Your tailored resume is ready! Download as a professionally formatted PDF.
+            {isEditing 
+              ? 'Edit your resume content below, then download when ready.'
+              : 'Your optimized resume in Markdown format. Click Edit Mode to make changes.'
+            }
           </p>
         </div>
-        
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Button
-            onClick={onPreview}
-            variant="outline"
-            className="flex-1 flex items-center justify-center space-x-2"
-          >
-            <Eye className="w-4 h-4" />
-            <span>Preview</span>
-          </Button>
-          <Button
-            onClick={() => handleDownloadClick('pdf')}
-            className="flex-1 flex items-center justify-center space-x-2"
-          >
-            <Download className="w-4 h-4" />
-            <span>Download PDF</span>
-          </Button>
+
+        <div className="space-y-4">
+          <textarea
+            value={editableContent}
+            onChange={(e) => setEditableContent(e.target.value)}
+            readOnly={!isEditing}
+            className={`w-full h-96 p-4 border rounded-lg font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              isEditing 
+                ? 'border-blue-300 bg-white' 
+                : 'border-gray-300 bg-gray-50 cursor-default'
+            }`}
+            placeholder="Your tailored resume content will appear here..."
+          />
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button
+              onClick={handleDownloadClick}
+              className="flex-1 flex items-center justify-center space-x-2"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download Markdown (.md)</span>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleCopyToClipboard}
+              className="flex-1 flex items-center justify-center space-x-2"
+            >
+              <Copy className="w-4 h-4" />
+              <span>Copy to Clipboard</span>
+            </Button>
+          </div>
         </div>
 
         <div className="mt-4 p-3 bg-blue-50 rounded-lg">
           <p className="text-xs text-blue-800">
-            <strong>Professional Format:</strong> Your resume will be downloaded as a beautifully 
-            formatted PDF that maintains consistent styling and is optimized for both ATS systems 
-            and human reviewers.
+            <strong>Markdown Format:</strong> Your resume is formatted in Markdown, which can be easily 
+            converted to PDF, HTML, or other formats using tools like Pandoc, or opened in any text editor. 
+            The format is ATS-friendly and maintains clean, readable structure.
           </p>
         </div>
       </Card>

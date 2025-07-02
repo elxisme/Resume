@@ -2,14 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { FileUpload } from './FileUpload';
 import { JobDescriptionInput } from './JobDescriptionInput';
-import { TemplateSelector } from './TemplateSelector';
 import { AnalysisResults } from './AnalysisResults';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
-import { ResumeTemplate, ResumeAnalysis } from '../../types';
+import { ResumeAnalysis } from '../../types';
 import { ResumeService } from '../../services/resumeService';
 import { FileProcessingResult } from '../../services/fileProcessingService';
-import { generatePDF } from '../../utils/fileUtils';
+import { downloadTextFile } from '../../utils/fileUtils';
 import { useErrorHandler } from '../../hooks/useErrorHandler';
 import { useToast } from '../ui/Toast';
 import { Sparkles, ArrowRight, AlertCircle, Crown, CheckCircle, Clock, Zap } from 'lucide-react';
@@ -19,8 +18,6 @@ export const Dashboard: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [processingResult, setProcessingResult] = useState<FileProcessingResult | null>(null);
   const [jobDescription, setJobDescription] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
-  const [templates, setTemplates] = useState<ResumeTemplate[]>([]);
   const [analysis, setAnalysis] = useState<ResumeAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
@@ -31,10 +28,6 @@ export const Dashboard: React.FC = () => {
   const { showSuccess, showError } = useToast();
 
   const hasActiveSubscription = !!profile?.subscription;
-
-  useEffect(() => {
-    loadTemplates();
-  }, []);
 
   // Enhanced progress simulation with stages - Fixed for cross-browser compatibility
   useEffect(() => {
@@ -83,22 +76,6 @@ export const Dashboard: React.FC = () => {
     };
   }, [isAnalyzing]);
 
-  const loadTemplates = async () => {
-    try {
-      const templatesData = await ResumeService.getTemplates();
-      setTemplates(templatesData);
-      // Auto-select first available template
-      const availableTemplate = templatesData.find(t => 
-        !t.is_premium || hasActiveSubscription
-      );
-      if (availableTemplate) {
-        setSelectedTemplate(availableTemplate.id);
-      }
-    } catch (error) {
-      handleError(error, 'Template Loading');
-    }
-  };
-
   const handleFileSelect = async (file: File, result: FileProcessingResult) => {
     setSelectedFile(file);
     setProcessingResult(result);
@@ -106,7 +83,7 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleAnalyze = async () => {
-    if (!processingResult || !jobDescription.trim() || !selectedTemplate) return;
+    if (!processingResult || !jobDescription.trim()) return;
 
     setIsAnalyzing(true);
     setError('');
@@ -117,15 +94,12 @@ export const Dashboard: React.FC = () => {
       const analysisResponse = await ResumeService.analyzeResume({
         resumeText: processingResult.text,
         jobDescription,
-        templateId: selectedTemplate
+        templateId: 'markdown' // Simple identifier for markdown output
       });
 
       // Complete progress
       setAnalysisProgress(100);
       setAnalysisStage('Analysis complete!');
-
-      // Get the selected template data
-      const selectedTemplateData = templates.find(t => t.id === selectedTemplate);
 
       // Create analysis object for display
       const analysisData: ResumeAnalysis = {
@@ -134,13 +108,12 @@ export const Dashboard: React.FC = () => {
         original_resume_text: processingResult.text,
         job_description: jobDescription,
         tailored_resume_text: analysisResponse.tailoredResume,
-        template_id: selectedTemplate,
+        template_id: 'markdown',
         suggestions: analysisResponse.suggestions,
         ats_score: analysisResponse.atsScore,
         analysis_data: {
           ...analysisResponse.analysisData,
-          fileMetadata: processingResult.metadata,
-          template: selectedTemplateData
+          fileMetadata: processingResult.metadata
         },
         created_at: new Date().toISOString()
       };
@@ -150,7 +123,7 @@ export const Dashboard: React.FC = () => {
         await ResumeService.saveAnalysis({
           resumeText: processingResult.text,
           jobDescription,
-          templateId: selectedTemplate,
+          templateId: 'markdown',
           tailoredResume: analysisResponse.tailoredResume,
           suggestions: analysisResponse.suggestions,
           atsScore: analysisResponse.atsScore,
@@ -174,33 +147,19 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const handleDownload = async (format: 'pdf') => {
-    if (!analysis) return;
-    
+  const handleDownload = (content: string, filename: string = 'tailored-resume.md') => {
     try {
-      const selectedTemplateData = templates.find(t => t.id === analysis.template_id);
-      
-      await generatePDF(
-        analysis.tailored_resume_text || analysis.original_resume_text,
-        selectedTemplateData?.template_data || {},
-        selectedTemplateData?.category || 'modern',
-        `tailored-resume-${Date.now()}.pdf`
-      );
+      downloadTextFile(content, filename, 'text/markdown');
+      showSuccess('Download Complete!', 'Your resume has been downloaded successfully.');
     } catch (error) {
       console.error('Download error:', error);
-      handleError(error, 'PDF Download', {
-        fallbackMessage: 'Failed to generate PDF. Please try again.'
+      handleError(error, 'File Download', {
+        fallbackMessage: 'Failed to download resume. Please try again.'
       });
     }
   };
 
-  const handlePreview = () => {
-    if (!analysis) return;
-    showSuccess('Preview Feature', 'Preview functionality will open the formatted resume in a new window.');
-    // In production, this would open a modal or new window with the formatted resume
-  };
-
-  const canAnalyze = processingResult && jobDescription.trim() && selectedTemplate;
+  const canAnalyze = processingResult && jobDescription.trim();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -256,16 +215,6 @@ export const Dashboard: React.FC = () => {
           </div>
 
           <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Step 3: Choose Template</h2>
-              <TemplateSelector
-                templates={templates}
-                selectedTemplate={selectedTemplate}
-                onTemplateSelect={setSelectedTemplate}
-                hasActiveSubscription={hasActiveSubscription}
-              />
-            </div>
-
             <Card className="text-center">
               <div className="space-y-4">
                 <div className="p-3 bg-blue-50 rounded-full w-fit mx-auto">
@@ -274,7 +223,7 @@ export const Dashboard: React.FC = () => {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">Ready to Analyze?</h3>
                   <p className="text-gray-600 text-sm mb-4">
-                    Our AI will analyze your resume and tailor it specifically for this job opening.
+                    Our AI will analyze your resume and create a tailored Markdown version specifically for this job opening.
                   </p>
                   {processingResult && (
                     <div className="mb-4 p-3 bg-green-50 rounded-lg">
@@ -344,8 +293,8 @@ export const Dashboard: React.FC = () => {
           
           <AnalysisResults
             analysis={analysis}
+            tailoredResumeText={analysis.tailored_resume_text || analysis.original_resume_text}
             onDownload={handleDownload}
-            onPreview={handlePreview}
           />
 
           <div className="mt-8 text-center">

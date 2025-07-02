@@ -100,8 +100,8 @@ export class ResumeService {
     const baseScore = Math.min(keywordMatchPercentage, 85);
     const atsScore = Math.floor(baseScore + Math.random() * 15) + 70; // 70-100%
 
-    // Create an enhanced version of the resume
-    const enhancedResume = this.enhanceResumeText(request.resumeText, missingKeywords);
+    // Create an enhanced Markdown version of the resume
+    const enhancedResume = this.enhanceResumeToMarkdown(request.resumeText, missingKeywords);
 
     return {
       tailoredResume: enhancedResume,
@@ -146,30 +146,114 @@ export class ResumeService {
     return [...new Set([...foundKeywords, ...techWords])];
   }
 
-  private static enhanceResumeText(originalText: string, missingKeywords: string[]): string {
-    let enhancedText = originalText;
+  private static enhanceResumeToMarkdown(originalText: string, missingKeywords: string[]): string {
+    // Convert the resume to proper Markdown format
+    let markdownResume = this.convertToMarkdown(originalText);
 
     // Add missing keywords naturally to the skills section or create one
     if (missingKeywords.length > 0) {
-      const skillsSection = /(?:SKILLS|TECHNICAL SKILLS|CORE COMPETENCIES)[\s\S]*?(?=\n[A-Z]{2,}|\n\n|$)/i;
-      const skillsMatch = enhancedText.match(skillsSection);
+      const skillsSection = /## Skills[\s\S]*?(?=\n## |\n# |$)/i;
+      const skillsMatch = markdownResume.match(skillsSection);
 
       if (skillsMatch) {
         // Add keywords to existing skills section
         const existingSkills = skillsMatch[0];
-        const enhancedSkills = existingSkills + '\n• ' + missingKeywords.join(', ');
-        enhancedText = enhancedText.replace(skillsSection, enhancedSkills);
+        const enhancedSkills = existingSkills + '\n- ' + missingKeywords.join('\n- ');
+        markdownResume = markdownResume.replace(skillsSection, enhancedSkills);
       } else {
         // Add a new skills section
-        const skillsSection = `\n\nTECHNICAL SKILLS\n• ${missingKeywords.join(', ')}`;
-        enhancedText += skillsSection;
+        const skillsSection = `\n\n## Skills\n\n${missingKeywords.map(skill => `- ${skill}`).join('\n')}`;
+        markdownResume += skillsSection;
       }
     }
 
     // Add optimization note
-    enhancedText += '\n\n[RESUME OPTIMIZED FOR ATS COMPATIBILITY]';
+    markdownResume += '\n\n---\n\n*Resume optimized with ResumeAI for ATS compatibility*';
 
-    return enhancedText;
+    return markdownResume;
+  }
+
+  private static convertToMarkdown(text: string): string {
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+    let markdown = '';
+    let currentSection = '';
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const nextLine = lines[i + 1];
+
+      // First line is usually the name (main heading)
+      if (i === 0) {
+        markdown += `# ${line}\n\n`;
+        continue;
+      }
+
+      // Detect section headers (common resume sections)
+      const sectionHeaders = [
+        'summary', 'objective', 'profile', 'experience', 'work experience', 
+        'employment', 'professional experience', 'education', 'academic background',
+        'skills', 'technical skills', 'core competencies', 'projects', 
+        'certifications', 'achievements', 'awards', 'contact', 'contact information'
+      ];
+
+      const isHeader = sectionHeaders.some(header => 
+        line.toLowerCase().includes(header) && line.length < 50
+      );
+
+      if (isHeader) {
+        currentSection = line.toLowerCase();
+        markdown += `## ${line}\n\n`;
+      } else if (currentSection.includes('experience') || currentSection.includes('employment')) {
+        // Format experience entries
+        if (nextLine && this.looksLikeCompanyName(nextLine)) {
+          markdown += `### ${line}\n`;
+          markdown += `**${nextLine}**\n\n`;
+          i++; // Skip the next line since we processed it
+        } else if (this.looksLikeDate(line)) {
+          markdown += `*${line}*\n\n`;
+        } else {
+          markdown += `${line}\n\n`;
+        }
+      } else if (currentSection.includes('education')) {
+        // Format education entries
+        if (this.looksLikeDate(line)) {
+          markdown += `*${line}*\n\n`;
+        } else {
+          markdown += `**${line}**\n\n`;
+        }
+      } else if (currentSection.includes('skill')) {
+        // Format skills as bullet points
+        if (line.includes(',') || line.includes('•') || line.includes('-')) {
+          const skills = line.split(/[,•\-]/).map(skill => skill.trim()).filter(skill => skill);
+          skills.forEach(skill => {
+            markdown += `- ${skill}\n`;
+          });
+          markdown += '\n';
+        } else {
+          markdown += `- ${line}\n`;
+        }
+      } else {
+        // Regular content
+        markdown += `${line}\n\n`;
+      }
+    }
+
+    return markdown.trim();
+  }
+
+  private static looksLikeCompanyName(text: string): boolean {
+    // Simple heuristic to detect company names
+    return text.length < 100 && 
+           (text.includes('Inc') || text.includes('LLC') || text.includes('Corp') || 
+            text.includes('Company') || text.includes('Technologies') || 
+            /^[A-Z][a-zA-Z\s&]+$/.test(text));
+  }
+
+  private static looksLikeDate(text: string): boolean {
+    // Simple heuristic to detect dates
+    return /\d{4}/.test(text) && 
+           (text.includes('-') || text.includes('to') || text.includes('present') || 
+            text.includes('current') || /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(text));
   }
 
   private static countWords(text: string): number {
