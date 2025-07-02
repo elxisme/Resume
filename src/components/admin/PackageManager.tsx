@@ -4,13 +4,14 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { AdminService } from '../../services/adminService';
 import { Package } from '../../types';
-import { Plus, Edit, Trash2, Crown, Settings, X, Check } from 'lucide-react';
+import { Plus, Edit, Trash2, Crown, Settings, X, Check, AlertCircle } from 'lucide-react';
 
 export const PackageManager: React.FC = () => {
   const [packages, setPackages] = useState<Package[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingPackage, setEditingPackage] = useState<Package | null>(null);
+  const [formError, setFormError] = useState<string>('');
 
   useEffect(() => {
     loadPackages();
@@ -29,21 +30,33 @@ export const PackageManager: React.FC = () => {
 
   const handleCreatePackage = async (packageData: any) => {
     try {
+      setFormError('');
       await AdminService.createPackage(packageData);
       await loadPackages();
       setShowCreateForm(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating package:', error);
+      if (error.message?.includes('already exists')) {
+        setFormError(error.message);
+      } else {
+        setFormError('Failed to create package. Please try again.');
+      }
     }
   };
 
   const handleUpdatePackage = async (id: string, packageData: any) => {
     try {
+      setFormError('');
       await AdminService.updatePackage(id, packageData);
       await loadPackages();
       setEditingPackage(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating package:', error);
+      if (error.message?.includes('already exists')) {
+        setFormError(error.message);
+      } else {
+        setFormError('Failed to update package. Please try again.');
+      }
     }
   };
 
@@ -58,6 +71,10 @@ export const PackageManager: React.FC = () => {
     }
   };
 
+  const clearFormError = () => {
+    setFormError('');
+  };
+
   if (isLoading) {
     return <div className="animate-pulse">Loading packages...</div>;
   }
@@ -66,7 +83,10 @@ export const PackageManager: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold text-gray-900">Subscription Packages</h2>
-        <Button onClick={() => setShowCreateForm(true)}>
+        <Button onClick={() => {
+          setShowCreateForm(true);
+          setFormError('');
+        }}>
           <Plus className="w-4 h-4 mr-2" />
           Create New Package
         </Button>
@@ -75,7 +95,12 @@ export const PackageManager: React.FC = () => {
       {showCreateForm && (
         <PackageForm
           onSubmit={handleCreatePackage}
-          onCancel={() => setShowCreateForm(false)}
+          onCancel={() => {
+            setShowCreateForm(false);
+            setFormError('');
+          }}
+          formError={formError}
+          onClearError={clearFormError}
         />
       )}
 
@@ -83,7 +108,12 @@ export const PackageManager: React.FC = () => {
         <PackageForm
           package={editingPackage}
           onSubmit={(data) => handleUpdatePackage(editingPackage.id, data)}
-          onCancel={() => setEditingPackage(null)}
+          onCancel={() => {
+            setEditingPackage(null);
+            setFormError('');
+          }}
+          formError={formError}
+          onClearError={clearFormError}
         />
       )}
 
@@ -139,7 +169,10 @@ export const PackageManager: React.FC = () => {
                   variant="outline" 
                   size="sm" 
                   className="flex-1"
-                  onClick={() => setEditingPackage(pkg)}
+                  onClick={() => {
+                    setEditingPackage(pkg);
+                    setFormError('');
+                  }}
                 >
                   <Edit className="w-4 h-4 mr-1" />
                   Edit
@@ -164,9 +197,17 @@ interface PackageFormProps {
   package?: Package;
   onSubmit: (data: any) => void;
   onCancel: () => void;
+  formError: string;
+  onClearError: () => void;
 }
 
-const PackageForm: React.FC<PackageFormProps> = ({ package: pkg, onSubmit, onCancel }) => {
+const PackageForm: React.FC<PackageFormProps> = ({ 
+  package: pkg, 
+  onSubmit, 
+  onCancel, 
+  formError, 
+  onClearError 
+}) => {
   const [formData, setFormData] = useState({
     name: pkg?.name || '',
     description: pkg?.description || '',
@@ -210,13 +251,34 @@ const PackageForm: React.FC<PackageFormProps> = ({ package: pkg, onSubmit, onCan
       <h3 className="text-lg font-semibold text-gray-900 mb-4">
         {pkg ? 'Edit Package' : 'Create New Package'}
       </h3>
+
+      {formError && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-start space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-red-700 text-sm">{formError}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClearError}
+              className="text-red-400 hover:text-red-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
       
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
             label="Package Name"
             value={formData.name}
-            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            onChange={(e) => {
+              setFormData(prev => ({ ...prev, name: e.target.value }));
+              if (formError) onClearError();
+            }}
             required
           />
           <Input

@@ -657,7 +657,7 @@ export class AdminService {
     return Math.round(((current - previous) / previous) * 100);
   }
 
-  // Existing methods for packages and other functionality...
+  // Package management methods with improved error handling
   static async getPackages(): Promise<Package[]> {
     const { data, error } = await supabase
       .from('packages')
@@ -669,26 +669,48 @@ export class AdminService {
   }
 
   static async createPackage(packageData: Omit<Package, 'id' | 'created_at' | 'updated_at'>) {
-    const { data, error } = await supabase
-      .from('packages')
-      .insert(packageData)
-      .select()
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('packages')
+        .insert(packageData)
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) {
+        // Check for unique constraint violation (duplicate name)
+        if (error.code === '23505' && error.message.includes('packages_name_key')) {
+          throw new Error(`A package with the name "${packageData.name}" already exists. Please choose a different name.`);
+        }
+        throw error;
+      }
+      return data;
+    } catch (error: any) {
+      console.error('Error creating package:', error);
+      throw error;
+    }
   }
 
   static async updatePackage(id: string, packageData: Partial<Package>) {
-    const { data, error } = await supabase
-      .from('packages')
-      .update(packageData)
-      .eq('id', id)
-      .select()
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('packages')
+        .update(packageData)
+        .eq('id', id)
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) {
+        // Check for unique constraint violation (duplicate name)
+        if (error.code === '23505' && error.message.includes('packages_name_key')) {
+          throw new Error(`A package with the name "${packageData.name}" already exists. Please choose a different name.`);
+        }
+        throw error;
+      }
+      return data;
+    } catch (error: any) {
+      console.error('Error updating package:', error);
+      throw error;
+    }
   }
 
   static async deletePackage(id: string) {
