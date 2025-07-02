@@ -193,7 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Don't set isLoading to false here - let the auth state change handle it
     } catch (error: any) {
       console.error('Login error:', error);
-      setIsLoading(false);
+      setIsLoading(false); // CRITICAL: Reset loading state on error
       
       // Provide more specific error messages
       if (error.message?.includes('Invalid login credentials')) {
@@ -223,7 +223,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) {
         // Handle specific Supabase auth errors
         if (error.message.includes('User already registered') || 
-            error.message.includes('user_already_exists')) {
+            error.message.includes('user_already_exists') ||
+            error.code === 'user_already_exists') {
           throw new Error('This email is already registered. Please sign in instead.');
         }
         throw error;
@@ -231,7 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // The onAuthStateChange listener will handle the rest
     } catch (error: any) {
       console.error('Registration error:', error);
-      setIsLoading(false);
+      setIsLoading(false); // CRITICAL: Reset loading state on error
       
       // Provide more specific error messages
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
