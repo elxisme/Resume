@@ -193,7 +193,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Don't set isLoading to false here - let the auth state change handle it
     } catch (error: any) {
       console.error('Login error:', error);
-      setIsLoading(false); // CRITICAL: Reset loading state on error
       
       // Provide more specific error messages
       if (error.message?.includes('Invalid login credentials')) {
@@ -203,6 +202,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         throw new Error(error.message || 'Login failed');
       }
+    } finally {
+      // CRITICAL FIX: Always reset loading state regardless of success/failure
+      // This prevents infinite loading when auth state change doesn't fire immediately
+      setTimeout(() => {
+        setIsLoading(false);
+      }, 100); // Small delay to allow auth state change to process first
     }
   };
 
@@ -232,7 +237,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // The onAuthStateChange listener will handle the rest
     } catch (error: any) {
       console.error('Registration error:', error);
-      setIsLoading(false); // CRITICAL: Reset loading state on error
       
       // Provide more specific error messages
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
@@ -240,6 +244,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         throw error;
       }
+    } finally {
+      // CRITICAL FIX: Always reset loading state regardless of success/failure
+      // This prevents infinite loading when auth state change doesn't fire immediately
+      setTimeout(() => {
+        setIsLoading(false);
+      }, 100); // Small delay to allow auth state change to process first
     }
   };
 
