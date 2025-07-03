@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { Profile, Subscription, Package } from '../types';
@@ -36,9 +36,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<(Profile & { subscription?: Subscription & { package: Package } }) | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Ref to track timeout for stuck loading state
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let mounted = true;
+
+    // Set up a timeout to handle stuck loading states
+    const setupLoadingTimeout = () => {
+      // Clear any existing timeout
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+
+      // Set a new timeout for 7 seconds
+      loadingTimeoutRef.current = setTimeout(() => {
+        if (mounted && isLoading) {
+          console.warn('Authentication process stuck in loading state - forcing logout');
+          
+          // Force logout to clear stuck state
+          logout().catch(console.error);
+          
+          // Reset loading state
+          setIsLoading(false);
+          setUser(null);
+          setProfile(null);
+          setSession(null);
+        }
+      }, 7000); // 7 seconds timeout
+    };
+
+    // Clear timeout when loading completes
+    const clearLoadingTimeout = () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+
+    // Start the timeout when component mounts and is loading
+    if (isLoading) {
+      setupLoadingTimeout();
+    }
 
     // Clear any stale auth tokens on app start
     const clearStaleTokens = async () => {
@@ -73,6 +113,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(null);
             setProfile(null);
             setIsLoading(false);
+            clearLoadingTimeout();
           }
         } else {
           if (mounted) {
@@ -83,6 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               await fetchProfile(initialSession.user.id);
             } else {
               setIsLoading(false);
+              clearLoadingTimeout();
             }
           }
         }
@@ -93,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           setProfile(null);
           setIsLoading(false);
+          clearLoadingTimeout();
         }
       }
     };
@@ -113,6 +156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } else {
             setProfile(null);
             setIsLoading(false);
+            clearLoadingTimeout();
           }
         }
       }
@@ -121,8 +165,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      clearLoadingTimeout();
     };
-  }, []);
+  }, [isLoading]); // Add isLoading as dependency to restart timeout when loading state changes
 
   const fetchProfile = async (userId: string) => {
     try {
@@ -176,6 +221,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfile(null);
     } finally {
       setIsLoading(false);
+      // Clear timeout when profile fetch completes
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
     }
   };
 
@@ -280,6 +330,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem('supabase.auth.token');
       
       throw new Error(error.message || 'Logout failed');
+    } finally {
+      // Clear any pending timeout
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
     }
   };
 
