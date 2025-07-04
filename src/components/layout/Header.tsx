@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Card } from '../ui/Card';
-import { FileText, User, LogOut, Settings, Crown, X, Save } from 'lucide-react';
+import { FileText, LogOut, Settings, Crown, X, Save } from 'lucide-react';
 
 interface HeaderProps {
   onUpgradeClick: () => void;
