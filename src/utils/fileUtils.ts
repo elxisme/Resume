@@ -61,3 +61,44 @@ export const downloadTextFile = (content: string, filename: string, mimeType: st
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 };
+
+export const downloadHtmlFile = (content: string, filename: string) => {
+  // Add basic HTML structure if not present
+  const htmlContent = content.includes('<!DOCTYPE html>') ? content : `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #fff;
+        }
+        h1 { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px; }
+        h2 { color: #1f2937; margin-top: 30px; margin-bottom: 15px; }
+        h3 { color: #374151; margin-top: 20px; margin-bottom: 10px; }
+        ul { padding-left: 20px; }
+        li { margin-bottom: 5px; }
+        strong { color: #1f2937; }
+        em { color: #6b7280; }
+        hr { border: none; border-top: 1px solid #e5e7eb; margin: 30px 0; }
+        @media print {
+            body { margin: 0; padding: 15px; }
+            h1 { page-break-after: avoid; }
+        }
+    </style>
+</head>
+<body>
+${content}
+</body>
+</html>`;
+
+  downloadTextFile(htmlContent, filename, 'text/html');
+};
