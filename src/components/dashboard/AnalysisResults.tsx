@@ -5,7 +5,7 @@ import { ResumeAnalysis } from '../../types';
 import { BarChart3, CheckCircle, AlertCircle, Download, Edit3, Copy, Code, FileText, Eye } from 'lucide-react';
 import { useErrorHandler } from '../../hooks/useErrorHandler';
 import { useToast } from '../ui/Toast';
-import marked from 'marked';
+import { marked } from 'marked';
 
 interface AnalysisResultsProps {
   analysis: ResumeAnalysis;
